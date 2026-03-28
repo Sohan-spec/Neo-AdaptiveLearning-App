@@ -1,6 +1,7 @@
 package com.neo.android.ui.chat
 
 import android.app.Application
+import android.speech.SpeechRecognizer
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
@@ -41,32 +42,66 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     val isThinking = mutableStateOf(false)
 
-    // ── Voice state ──────────────────────────────────────────
+    // ── Voice state (mic button) ────────────────────────────
     val micState = mutableStateOf(MicState.IDLE)
     val partialText = mutableStateOf("")
     private var isVoiceMode = false
 
+    // ── Live mode state ──────────────────────────────────────
+    val isLiveMode = mutableStateOf(false)
+    val liveMicState = mutableStateOf(MicState.IDLE)
+    val livePartialText = mutableStateOf("")
+
     private val speechManager = SpeechManager(
         context = application,
         onPartialResult = { text ->
-            partialText.value = text
+            if (isLiveMode.value) {
+                livePartialText.value = text
+            } else {
+                partialText.value = text
+            }
         },
         onFinalResult = { text ->
-            partialText.value = ""
-            micState.value = MicState.IDLE
-            sendMessage(text)
+            if (isLiveMode.value) {
+                livePartialText.value = ""
+                liveMicState.value = MicState.IDLE
+                sendMessage(text)
+            } else {
+                partialText.value = ""
+                micState.value = MicState.IDLE
+                sendMessage(text)
+            }
         },
-        onSttError = {
-            partialText.value = ""
-            micState.value = MicState.IDLE
-            isVoiceMode = false
+        onSttError = { errorCode ->
+            if (isLiveMode.value) {
+                livePartialText.value = ""
+                // Transient errors → auto-restart; fatal → close
+                val transient = errorCode == SpeechRecognizer.ERROR_NO_MATCH ||
+                    errorCode == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                if (transient && isLiveMode.value) {
+                    liveStartListening()
+                } else {
+                    liveMicState.value = MicState.IDLE
+                    isLiveMode.value = false
+                }
+            } else {
+                partialText.value = ""
+                micState.value = MicState.IDLE
+                isVoiceMode = false
+            }
         },
         onTtsDone = {
-            micState.value = MicState.IDLE
-            isVoiceMode = false
+            if (isLiveMode.value) {
+                // Continuous loop: after speaking the reply, listen again
+                liveStartListening()
+            } else {
+                micState.value = MicState.IDLE
+                isVoiceMode = false
+            }
         },
     )
 
+    // ── Mic button handlers ──────────────────────────────────
     fun onMicClick() {
         when (micState.value) {
             MicState.IDLE -> startListening()
@@ -88,6 +123,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         isVoiceMode = true
         partialText.value = ""
         micState.value = MicState.LISTENING
+        speechManager.startListening()
+    }
+
+    // ── Live mode handlers ───────────────────────────────────
+    fun onLiveOpen() {
+        isLiveMode.value = true
+        livePartialText.value = ""
+        liveStartListening()
+    }
+
+    fun onLiveClose() {
+        isLiveMode.value = false
+        speechManager.stopListening()
+        speechManager.stopSpeaking()
+        liveMicState.value = MicState.IDLE
+        livePartialText.value = ""
+    }
+
+    private fun liveStartListening() {
+        if (speechManager.isSpeaking) speechManager.stopSpeaking()
+        livePartialText.value = ""
+        liveMicState.value = MicState.LISTENING
         speechManager.startListening()
     }
 
@@ -124,9 +181,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             // Done typing
             _messages[idx] = _messages[idx].copy(isTyping = false, visibleChars = response.length)
 
-            // If initiated via mic, speak the reply
-            if (isVoiceMode) {
-                micState.value = MicState.SPEAKING
+            // If initiated via mic or live mode, speak the reply
+            if (isVoiceMode || isLiveMode.value) {
+                if (isLiveMode.value) {
+                    liveMicState.value = MicState.SPEAKING
+                } else {
+                    micState.value = MicState.SPEAKING
+                }
                 speechManager.speak(response)
             }
         }

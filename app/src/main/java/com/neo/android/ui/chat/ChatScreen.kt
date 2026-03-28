@@ -57,6 +57,8 @@ fun ChatScreen(
     val isThinking by vm.isThinking
     val micState by vm.micState
     val partialText by vm.partialText
+    val liveMicState by vm.liveMicState
+    val livePartialText by vm.livePartialText
     val listState = rememberLazyListState()
     var sidebarVisible by remember { mutableStateOf(false) }
     var liveOverlayVisible by remember { mutableStateOf(false) }
@@ -67,6 +69,15 @@ fun ChatScreen(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) vm.onMicClick()
+    }
+
+    val livePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            liveOverlayVisible = true
+            vm.onLiveOpen()
+        }
     }
 
     val handleMicClick: () -> Unit = {
@@ -81,9 +92,26 @@ fun ChatScreen(
         }
     }
 
+    val handleLiveClick: () -> Unit = {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.RECORD_AUDIO,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            liveOverlayVisible = true
+            vm.onLiveOpen()
+        } else {
+            livePermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     BackHandler(enabled = sidebarVisible || liveOverlayVisible) {
-        if (liveOverlayVisible) liveOverlayVisible = false
-        else sidebarVisible = false
+        if (liveOverlayVisible) {
+            vm.onLiveClose()
+            liveOverlayVisible = false
+        } else {
+            sidebarVisible = false
+        }
     }
 
     val itemCount = messages.size + if (isThinking) 1 else 0
@@ -128,7 +156,7 @@ fun ChatScreen(
 
             InputBar(
                 onSend = { vm.sendMessage(it) },
-                onLiveClick = { liveOverlayVisible = true },
+                onLiveClick = handleLiveClick,
                 micState = micState,
                 partialText = partialText,
                 onMicClick = handleMicClick,
@@ -189,7 +217,12 @@ fun ChatScreen(
         // ── Layer 4: Live mode overlay ───────────────────────
         LiveOverlay(
             visible = liveOverlayVisible,
-            onClose = { liveOverlayVisible = false },
+            liveMicState = liveMicState,
+            livePartialText = livePartialText,
+            onClose = {
+                vm.onLiveClose()
+                liveOverlayVisible = false
+            },
         )
     }
 }

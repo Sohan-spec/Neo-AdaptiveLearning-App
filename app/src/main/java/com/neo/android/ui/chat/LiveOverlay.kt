@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
@@ -46,6 +47,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.neo.android.ui.theme.AccentGradEnd
@@ -53,6 +56,8 @@ import com.neo.android.ui.theme.AccentGradStart
 import com.neo.android.ui.theme.AccentPrimary
 import com.neo.android.ui.theme.BorderLight
 import com.neo.android.ui.theme.DmSans
+import com.neo.android.ui.theme.ShadowDark
+import com.neo.android.ui.theme.ShadowLight
 import com.neo.android.ui.theme.TextMuted
 import com.neo.android.ui.theme.TextSecondary
 import kotlin.math.PI
@@ -65,8 +70,16 @@ import kotlin.math.sqrt
 @Composable
 fun BoxScope.LiveOverlay(
     visible: Boolean,
+    liveMicState: MicState = MicState.IDLE,
+    livePartialText: String = "",
     onClose: () -> Unit,
 ) {
+    val statusText = when (liveMicState) {
+        MicState.LISTENING -> "Listening..."
+        MicState.SPEAKING  -> "Speaking..."
+        MicState.IDLE      -> "Thinking..."
+    }
+
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(tween(400, easing = FastOutSlowInEasing)) +
@@ -75,57 +88,11 @@ fun BoxScope.LiveOverlay(
                 scaleOut(tween(350, easing = FastOutSlowInEasing), targetScale = 0.92f),
         modifier = Modifier.fillMaxSize(),
     ) {
-        // Glassmorphism backdrop: blurred tinted layer
+        // Solid white backdrop – 100% opacity
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .blur(20.dp)
-                .background(Color(0x66DDE1EA)),
-        )
-        // Glassmorphism surface with colored glow blobs behind the glass
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Transparent),
-        ) {
-            // Indigo glow – top-left
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .size(280.dp)
-                    .blur(140.dp)
-                    .background(
-                        Color(0x1A6366F1), // indigo-500 @ ~10%
-                        RoundedCornerShape(50),
-                    ),
-            )
-            // Pink glow – bottom-right
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .size(280.dp)
-                    .blur(140.dp)
-                    .background(
-                        Color(0x1AEC4899), // pink-500 @ ~10%
-                        RoundedCornerShape(50),
-                    ),
-            )
-        }
-        // Glass surface: semi-transparent white with subtle border
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0x40FFFFFF)) // ~25% white glass
-                .border(
-                    width = 0.5.dp,
-                    brush = Brush.verticalGradient(
-                        listOf(
-                            Color(0x33FFFFFF),
-                            Color(0x0DFFFFFF),
-                        ),
-                    ),
-                    shape = RoundedCornerShape(0.dp),
-                )
+                .background(Color.White)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -160,20 +127,34 @@ fun BoxScope.LiveOverlay(
                 )
             }
 
-            // Center content: blob + text
+            // Center content: blob + status + partial text
             Column(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                VoiceBlob(
-                    modifier = Modifier.size(220.dp),
-                )
+                // Blob with neumorphic shadow
+                Box(
+                    modifier = Modifier
+                        .size(220.dp)
+                        .neuShadow(
+                            cornerRadius = 110.dp,
+                            darkColor = ShadowDark,
+                            lightColor = ShadowLight,
+                            darkOffset = 6.dp,
+                            lightOffset = (-4).dp,
+                            blur = 12.dp,
+                        ),
+                ) {
+                    VoiceBlob(
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(32.dp))
 
                 Text(
-                    text = "Listening...",
+                    text = statusText,
                     fontFamily = DmSans,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -183,12 +164,28 @@ fun BoxScope.LiveOverlay(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Text(
-                    text = "Tap the close button to exit",
-                    fontFamily = DmSans,
-                    fontSize = 13.sp,
-                    color = TextMuted,
-                )
+                // Show live partial transcription while listening
+                if (liveMicState == MicState.LISTENING && livePartialText.isNotEmpty()) {
+                    Text(
+                        text = livePartialText,
+                        fontFamily = DmSans,
+                        fontSize = 14.sp,
+                        color = TextMuted,
+                        textAlign = TextAlign.Center,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .padding(horizontal = 32.dp)
+                            .widthIn(max = 280.dp),
+                    )
+                } else {
+                    Text(
+                        text = "Tap the close button to exit",
+                        fontFamily = DmSans,
+                        fontSize = 13.sp,
+                        color = TextMuted,
+                    )
+                }
             }
         }
     }
