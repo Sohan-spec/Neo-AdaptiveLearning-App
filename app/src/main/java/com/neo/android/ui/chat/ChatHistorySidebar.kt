@@ -61,6 +61,7 @@ fun BoxScope.ChatHistorySidebar(
     chatSessions: List<ChatSession>,
     onClose: () -> Unit,
     onSessionSelected: (ChatSession) -> Unit,
+    onNewChat: () -> Unit = {},
 ) {
     // Scrim
     AnimatedVisibility(
@@ -151,7 +152,9 @@ fun BoxScope.ChatHistorySidebar(
                     imageVector = Icons.Outlined.Add,
                     contentDescription = "New chat",
                     tint = AccentPrimary,
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clickable { onNewChat() },
                 )
             }
 

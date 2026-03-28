@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.neo.android.ui.theme.BorderLight
 import com.neo.android.ui.theme.SpatialBg
@@ -59,6 +60,7 @@ fun ChatScreen(
     val partialText by vm.partialText
     val liveMicState by vm.liveMicState
     val livePartialText by vm.livePartialText
+    val chatSessions by vm.chatSessions.collectAsState()
     val listState = rememberLazyListState()
     var sidebarVisible by remember { mutableStateOf(false) }
     var liveOverlayVisible by remember { mutableStateOf(false) }
@@ -209,9 +211,16 @@ fun ChatScreen(
         // ── Layer 3: Sidebar overlay ─────────────────────────
         ChatHistorySidebar(
             visible = sidebarVisible,
-            chatSessions = vm.chatSessions,
+            chatSessions = chatSessions,
             onClose = { sidebarVisible = false },
-            onSessionSelected = { /* handle session switch */ },
+            onSessionSelected = { session ->
+                vm.switchToChat(session.id)
+                sidebarVisible = false
+            },
+            onNewChat = {
+                vm.createNewChat()
+                sidebarVisible = false
+            },
         )
 
         // ── Layer 4: Live mode overlay ───────────────────────
