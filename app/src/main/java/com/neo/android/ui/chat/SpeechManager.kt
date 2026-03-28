@@ -23,6 +23,11 @@ class SpeechManager(
     // ── STT ──────────────────────────────────────────────────
     private var speechRecognizer: SpeechRecognizer? = null
 
+    // Each call to startListening() gets a unique session ID.
+    // Callbacks whose session ID no longer matches activeSession are stale
+    // (fired by a recognizer that was already superseded) and are dropped.
+    @Volatile private var activeSession = 0
+
     private val recognizerIntent: Intent =
         Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(
@@ -37,48 +42,50 @@ class SpeechManager(
             )
         }
 
-    private val recognitionListener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {}
-        override fun onBeginningOfSpeech() {}
-        override fun onRmsChanged(rmsdB: Float) {}
-        override fun onBufferReceived(buffer: ByteArray?) {}
-        override fun onEndOfSpeech() {}
-
-        override fun onPartialResults(partialResults: Bundle?) {
-            val texts = partialResults
-                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            if (!texts.isNullOrEmpty()) {
-                onPartialResult(texts[0])
-            }
-        }
-
-        override fun onResults(results: Bundle?) {
-            val texts = results
-                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            if (!texts.isNullOrEmpty() && texts[0].isNotBlank()) {
-                onFinalResult(texts[0])
-            } else {
-                // No speech detected — treat as error so UI resets
-                onSttError(SpeechRecognizer.ERROR_NO_MATCH)
-            }
-        }
-
-        override fun onError(error: Int) {
-            onSttError(error)
-        }
-
-        override fun onEvent(eventType: Int, params: Bundle?) {}
-    }
-
     fun startListening() {
+        // Capture this session's ID before destroying the old recognizer so
+        // any stale onError fired during destroy() is already invalidated.
+        val session = ++activeSession
         speechRecognizer?.destroy()
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(appContext).also {
-            it.setRecognitionListener(recognitionListener)
-            it.startListening(recognizerIntent)
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(appContext)?.also { sr ->
+            sr.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+
+                override fun onPartialResults(partialResults: Bundle?) {
+                    if (activeSession != session) return
+                    val texts = partialResults
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    if (!texts.isNullOrEmpty()) onPartialResult(texts[0])
+                }
+
+                override fun onResults(results: Bundle?) {
+                    if (activeSession != session) return
+                    val texts = results
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    if (!texts.isNullOrEmpty() && texts[0].isNotBlank()) {
+                        onFinalResult(texts[0])
+                    } else {
+                        onSttError(SpeechRecognizer.ERROR_NO_MATCH)
+                    }
+                }
+
+                override fun onError(error: Int) {
+                    if (activeSession != session) return
+                    onSttError(error)
+                }
+
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+            sr.startListening(recognizerIntent)
         }
     }
 
     fun stopListening() {
+        ++activeSession // invalidate any in-flight callbacks before stopping
         speechRecognizer?.stopListening()
     }
 
@@ -148,6 +155,7 @@ class SpeechManager(
 
     // ── Lifecycle ────────────────────────────────────────────
     fun destroy() {
+        ++activeSession // invalidate all in-flight callbacks before teardown
         speechRecognizer?.destroy()
         speechRecognizer = null
         tts?.stop()

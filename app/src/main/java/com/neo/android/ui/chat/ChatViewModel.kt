@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -75,15 +76,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         onSttError = { errorCode ->
             if (isLiveMode.value) {
                 livePartialText.value = ""
-                // Transient errors → auto-restart; fatal → close
-                val transient = errorCode == SpeechRecognizer.ERROR_NO_MATCH ||
-                    errorCode == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
-                if (transient && isLiveMode.value) {
-                    liveStartListening()
-                } else {
+                // Only restart if we are still in LISTENING state.
+                // If liveMicState is IDLE (processing a result) or SPEAKING
+                // (TTS playing), this callback is stale — ignore it.
+                // The only truly unrecoverable error is a missing permission.
+                val fatal = errorCode == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
+                if (!fatal && liveMicState.value == MicState.LISTENING) {
+                    viewModelScope.launch(Dispatchers.Main) {
+                        delay(400L) // let the old recognizer fully release resources
+                        // Double-check state hasn't changed during the delay
+                        if (isLiveMode.value && liveMicState.value == MicState.LISTENING) {
+                            liveStartListening()
+                        }
+                    }
+                } else if (fatal) {
                     liveMicState.value = MicState.IDLE
                     isLiveMode.value = false
                 }
+                // else: stale callback (IDLE or SPEAKING state) — drop silently
             } else {
                 partialText.value = ""
                 micState.value = MicState.IDLE
@@ -92,8 +102,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         },
         onTtsDone = {
             if (isLiveMode.value) {
-                // Continuous loop: after speaking the reply, listen again
-                liveStartListening()
+                // onDone fires on the TTS engine's background thread; SpeechRecognizer
+                // must only be touched from the main thread, so dispatch to Main.
+                // 500 ms gives the audio system time to release focus after TTS ends
+                // before STT tries to acquire it on slower devices.
+                viewModelScope.launch(Dispatchers.Main) {
+                    delay(500L)
+                    if (isLiveMode.value) liveStartListening()
+                }
             } else {
                 micState.value = MicState.IDLE
                 isVoiceMode = false
