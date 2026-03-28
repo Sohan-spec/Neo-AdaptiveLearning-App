@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.Icon
@@ -43,19 +45,20 @@ fun MicButton(
 ) {
     Box(
         modifier = modifier
-            .size(48.dp)
+            .size(42.dp)
             .neuShadow(
-                cornerRadius = 24.dp,
+                cornerRadius = 14.dp,
                 darkColor = Color(0x554361EE),
                 lightColor = Color(0xCCFFFFFF),
-                darkOffset = 5.dp,
-                lightOffset = (-3).dp,
-                blur = 10.dp,
+                darkOffset = 4.dp,
+                lightOffset = (-2).dp,
+                blur = 8.dp,
             )
             .background(
                 brush = Brush.linearGradient(listOf(AccentGradStart, AccentGradEnd)),
-                shape = CircleShape,
+                shape = RoundedCornerShape(14.dp),
             )
+            .clip(RoundedCornerShape(14.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,

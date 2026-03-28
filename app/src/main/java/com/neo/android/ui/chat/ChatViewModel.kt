@@ -14,6 +14,14 @@ data class Message(
     val visibleChars: Int = content.length, // how many chars to show
 )
 
+data class ChatSession(
+    val id: String,
+    val title: String,
+    val preview: String,
+    val timestamp: String,
+    val isActive: Boolean = false,
+)
+
 private val cannedResponses = listOf(
     "Got it. I'll keep that in mind.",
     "That's a good point. Want me to help break that down?",
@@ -31,6 +39,15 @@ class ChatViewModel : ViewModel() {
     val messages: List<Message> get() = _messages
 
     val isThinking = mutableStateOf(false)
+
+    private val _chatSessions = mutableStateListOf(
+        ChatSession("1", "Current Chat", "Hello!", "Just now", isActive = true),
+        ChatSession("2", "Project Planning", "Let me help you break that down...", "2h ago"),
+        ChatSession("3", "Code Review", "The implementation looks good", "Yesterday"),
+        ChatSession("4", "Design Discussion", "I'll keep that in mind", "2 days ago"),
+        ChatSession("5", "Quick Question", "Sure, I can help with that", "3 days ago"),
+    )
+    val chatSessions: List<ChatSession> get() = _chatSessions
 
     fun sendMessage(text: String) {
         val trimmed = text.trim()
