@@ -1,5 +1,12 @@
 package com.neo.android.ui.chat
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -46,28 +53,40 @@ fun ChatScreen(
             onTabChange = { activeTab = it },
         )
 
-        when (activeTab) {
-            AppTab.CHAT -> {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                ) {
-                    items(messages) { message -> MessageBubble(message) }
-                    if (isThinking) {
-                        item { TypingIndicator() }
+        AnimatedContent(
+            targetState = activeTab,
+            modifier = Modifier.weight(1f),
+            transitionSpec = {
+                (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.96f))
+                    .togetherWith(fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.96f))
+            },
+            label = "tab_content",
+        ) { tab ->
+            when (tab) {
+                AppTab.CHAT -> {
+                    LazyColumn(
+                        state = listState,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(messages) { message -> MessageBubble(message) }
+                        if (isThinking) {
+                            item { TypingIndicator() }
+                        }
                     }
                 }
-                InputBar(
-                    onSend = { vm.sendMessage(it) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                AppTab.LIVE -> LiveScreen(modifier = Modifier.fillMaxSize())
+                AppTab.ARCHIVE -> ArchiveScreen(modifier = Modifier.fillMaxSize())
             }
-            AppTab.LIVE -> LiveScreen(modifier = Modifier.weight(1f))
-            AppTab.ARCHIVE -> ArchiveScreen(modifier = Modifier.weight(1f))
+        }
+
+        // Show input bar only on Chat tab
+        if (activeTab == AppTab.CHAT) {
+            InputBar(
+                onSend = { vm.sendMessage(it) },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

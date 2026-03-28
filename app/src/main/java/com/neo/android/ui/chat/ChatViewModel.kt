@@ -7,7 +7,12 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-data class Message(val role: String, val content: String)
+data class Message(
+    val role: String,
+    val content: String,
+    val isTyping: Boolean = false,   // true while typewriter is running
+    val visibleChars: Int = content.length, // how many chars to show
+)
 
 private val cannedResponses = listOf(
     "Got it. I'll keep that in mind.",
@@ -37,8 +42,19 @@ class ChatViewModel : ViewModel() {
         viewModelScope.launch {
             delay(1500L)
             val response = cannedResponses[(_messages.size - 1) % cannedResponses.size]
-            _messages.add(Message("assistant", response))
             isThinking.value = false
+
+            // Insert message with 0 visible chars (typewriter start)
+            val idx = _messages.size
+            _messages.add(Message("assistant", response, isTyping = true, visibleChars = 0))
+
+            // Reveal chars one by one
+            for (i in 1..response.length) {
+                delay(22L) // ~45 chars/sec — natural reading speed
+                _messages[idx] = _messages[idx].copy(visibleChars = i)
+            }
+            // Done typing
+            _messages[idx] = _messages[idx].copy(isTyping = false, visibleChars = response.length)
         }
     }
 }

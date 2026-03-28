@@ -1,5 +1,12 @@
 package com.neo.android.ui.chat
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -25,13 +32,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,7 +42,6 @@ import androidx.compose.ui.unit.sp
 import com.neo.android.ui.theme.AccentGradEnd
 import com.neo.android.ui.theme.AccentGradStart
 import com.neo.android.ui.theme.DmSans
-import com.neo.android.ui.theme.SpatialBg
 import com.neo.android.ui.theme.SpatialSurfaceRaised
 import com.neo.android.ui.theme.TextMuted
 import com.neo.android.ui.theme.TextPrimary
@@ -51,28 +53,11 @@ fun InputBar(
 ) {
     var text by rememberSaveable { mutableStateOf("") }
     var micState by remember { mutableStateOf(MicState.IDLE) }
-    val canSend = text.isNotBlank()
+    val hasText = text.isNotBlank()
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .drawBehind {
-                // Top border line
-                drawIntoCanvas { canvas ->
-                    val paint = Paint().apply {
-                        asFrameworkPaint().apply {
-                            isAntiAlias = true
-                            color = android.graphics.Color.TRANSPARENT
-                            setShadowLayer(
-                                8.dp.toPx(), 0f, (-3).dp.toPx(),
-                                Color(0x22A3B1C6).toArgb(),
-                            )
-                        }
-                    }
-                    canvas.drawRect(0f, 0f, size.width, 1f, paint)
-                }
-            }
-            .background(SpatialBg)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .navigationBarsPadding(),
     ) {
@@ -122,51 +107,59 @@ fun InputBar(
                 )
             }
 
-            // Send button
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .neuShadow(
-                        cornerRadius = 24.dp,
-                        darkColor = if (canSend) Color(0x554361EE) else Color(0x33A3B1C6),
-                        lightColor = Color(0xCCFFFFFF),
-                        darkOffset = 5.dp,
-                        lightOffset = (-3).dp,
-                        blur = 10.dp,
-                    )
-                    .background(
-                        brush = if (canSend)
-                            Brush.linearGradient(listOf(AccentGradStart, AccentGradEnd))
-                        else
-                            Brush.linearGradient(listOf(Color(0xFFB0BAD0), Color(0xFF9AA3B8))),
-                        shape = CircleShape,
-                    )
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        enabled = canSend,
-                        onClick = {
-                            onSend(text)
-                            text = ""
-                        },
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.Send,
-                    contentDescription = "Send",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-
-            // Mic button
-            MicButton(
-                state = micState,
-                onClick = {
-                    micState = if (micState == MicState.IDLE) MicState.LISTENING else MicState.IDLE
+            // Single action button: mic when empty, send when text present
+            AnimatedContent(
+                targetState = hasText,
+                transitionSpec = {
+                    (fadeIn(tween(150)) + scaleIn(tween(150), initialScale = 0.8f))
+                        .togetherWith(fadeOut(tween(100)) + scaleOut(tween(100), targetScale = 0.8f))
                 },
-            )
+                label = "mic_send_swap",
+            ) { showSend ->
+                if (showSend) {
+                    // Send button
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .neuShadow(
+                                cornerRadius = 24.dp,
+                                darkColor = Color(0x554361EE),
+                                lightColor = Color(0xCCFFFFFF),
+                                darkOffset = 5.dp,
+                                lightOffset = (-3).dp,
+                                blur = 10.dp,
+                            )
+                            .background(
+                                brush = Brush.linearGradient(listOf(AccentGradStart, AccentGradEnd)),
+                                shape = CircleShape,
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {
+                                    onSend(text)
+                                    text = ""
+                                },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.Send,
+                            contentDescription = "Send",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                } else {
+                    // Mic button
+                    MicButton(
+                        state = micState,
+                        onClick = {
+                            micState = if (micState == MicState.IDLE) MicState.LISTENING else MicState.IDLE
+                        },
+                    )
+                }
+            }
         }
     }
 }
