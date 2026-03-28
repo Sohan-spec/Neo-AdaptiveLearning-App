@@ -1,8 +1,9 @@
 package com.neo.android.ui.chat
 
+import android.app.Application
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -31,7 +32,7 @@ private val cannedResponses = listOf(
     "Makes sense. What would you like to do next?",
 )
 
-class ChatViewModel : ViewModel() {
+class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _messages = mutableStateListOf(
         Message("assistant", "Hello!")
@@ -39,6 +40,56 @@ class ChatViewModel : ViewModel() {
     val messages: List<Message> get() = _messages
 
     val isThinking = mutableStateOf(false)
+
+    // ── Voice state ──────────────────────────────────────────
+    val micState = mutableStateOf(MicState.IDLE)
+    val partialText = mutableStateOf("")
+    private var isVoiceMode = false
+
+    private val speechManager = SpeechManager(
+        context = application,
+        onPartialResult = { text ->
+            partialText.value = text
+        },
+        onFinalResult = { text ->
+            partialText.value = ""
+            micState.value = MicState.IDLE
+            sendMessage(text)
+        },
+        onSttError = {
+            partialText.value = ""
+            micState.value = MicState.IDLE
+            isVoiceMode = false
+        },
+        onTtsDone = {
+            micState.value = MicState.IDLE
+            isVoiceMode = false
+        },
+    )
+
+    fun onMicClick() {
+        when (micState.value) {
+            MicState.IDLE -> startListening()
+            MicState.LISTENING -> {
+                speechManager.stopListening()
+                partialText.value = ""
+                micState.value = MicState.IDLE
+                isVoiceMode = false
+            }
+            MicState.SPEAKING -> {
+                speechManager.stopSpeaking()
+                startListening()
+            }
+        }
+    }
+
+    private fun startListening() {
+        if (speechManager.isSpeaking) speechManager.stopSpeaking()
+        isVoiceMode = true
+        partialText.value = ""
+        micState.value = MicState.LISTENING
+        speechManager.startListening()
+    }
 
     private val _chatSessions = mutableStateListOf(
         ChatSession("1", "Current Chat", "Hello!", "Just now", isActive = true),
@@ -72,6 +123,17 @@ class ChatViewModel : ViewModel() {
             }
             // Done typing
             _messages[idx] = _messages[idx].copy(isTyping = false, visibleChars = response.length)
+
+            // If initiated via mic, speak the reply
+            if (isVoiceMode) {
+                micState.value = MicState.SPEAKING
+                speechManager.speak(response)
+            }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        speechManager.destroy()
     }
 }

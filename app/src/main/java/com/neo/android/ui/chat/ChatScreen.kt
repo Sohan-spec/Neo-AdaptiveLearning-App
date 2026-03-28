@@ -1,6 +1,8 @@
 package com.neo.android.ui.chat
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -39,7 +41,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.neo.android.ui.theme.BorderLight
 import com.neo.android.ui.theme.SpatialBg
@@ -51,9 +55,31 @@ fun ChatScreen(
 ) {
     val messages = vm.messages
     val isThinking by vm.isThinking
+    val micState by vm.micState
+    val partialText by vm.partialText
     val listState = rememberLazyListState()
     var sidebarVisible by remember { mutableStateOf(false) }
     var liveOverlayVisible by remember { mutableStateOf(false) }
+
+    // ── RECORD_AUDIO permission ──────────────────────────────
+    val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) vm.onMicClick()
+    }
+
+    val handleMicClick: () -> Unit = {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.RECORD_AUDIO,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            vm.onMicClick()
+        } else {
+            permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     BackHandler(enabled = sidebarVisible || liveOverlayVisible) {
         if (liveOverlayVisible) liveOverlayVisible = false
@@ -103,6 +129,9 @@ fun ChatScreen(
             InputBar(
                 onSend = { vm.sendMessage(it) },
                 onLiveClick = { liveOverlayVisible = true },
+                micState = micState,
+                partialText = partialText,
+                onMicClick = handleMicClick,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

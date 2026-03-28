@@ -63,10 +63,15 @@ import com.neo.android.ui.theme.TextSecondary
 fun InputBar(
     onSend: (String) -> Unit,
     onLiveClick: () -> Unit = {},
+    micState: MicState = MicState.IDLE,
+    partialText: String = "",
+    onMicClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var text by rememberSaveable { mutableStateOf("") }
-    var micState by remember { mutableStateOf(MicState.IDLE) }
+    val isVoiceActive = micState != MicState.IDLE
+    // Show text field content: partial STT text when listening, else user-typed text
+    val displayText = if (micState == MicState.LISTENING && partialText.isNotEmpty()) partialText else text
     val hasText = text.isNotBlank()
 
     Box(
@@ -114,7 +119,7 @@ fun InputBar(
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
-                if (text.isEmpty()) {
+                if (displayText.isEmpty()) {
                     Text(
                         text = "Message Neo...",
                         fontFamily = DmSans,
@@ -123,8 +128,8 @@ fun InputBar(
                     )
                 }
                 BasicTextField(
-                    value = text,
-                    onValueChange = { text = it },
+                    value = displayText,
+                    onValueChange = { if (!isVoiceActive) text = it },
                     textStyle = TextStyle(
                         fontFamily = DmSans,
                         fontSize = 14.sp,
@@ -134,6 +139,7 @@ fun InputBar(
                     ),
                     cursorBrush = SolidColor(AccentGradEnd),
                     maxLines = 4,
+                    readOnly = isVoiceActive,
                 )
             }
 
@@ -142,9 +148,9 @@ fun InputBar(
                 onClick = onLiveClick,
             )
 
-            // Single action button: mic when empty, send when text present
+            // Single action button: mic when empty or voice active, send when text present
             AnimatedContent(
-                targetState = hasText,
+                targetState = hasText && !isVoiceActive,
                 transitionSpec = {
                     (fadeIn(tween(150)) + scaleIn(tween(150), initialScale = 0.8f))
                         .togetherWith(fadeOut(tween(100)) + scaleOut(tween(100), targetScale = 0.8f))
@@ -190,9 +196,7 @@ fun InputBar(
                     // Mic button
                     MicButton(
                         state = micState,
-                        onClick = {
-                            micState = if (micState == MicState.IDLE) MicState.LISTENING else MicState.IDLE
-                        },
+                        onClick = onMicClick,
                     )
                 }
             }

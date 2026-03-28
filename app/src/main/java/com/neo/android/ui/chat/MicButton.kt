@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -35,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.neo.android.ui.theme.AccentGradEnd
 import com.neo.android.ui.theme.AccentGradStart
 
-enum class MicState { IDLE, LISTENING }
+enum class MicState { IDLE, LISTENING, SPEAKING }
 
 @Composable
 fun MicButton(
@@ -66,16 +67,17 @@ fun MicButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        if (state == MicState.IDLE) {
-            Icon(
-                imageVector = Icons.Outlined.Mic,
-                contentDescription = "Microphone",
-                tint = Color.White,
-                modifier = Modifier.size(22.dp),
-            )
-        } else {
-            // LISTENING: ping rings + waveform bars
-            ListeningContent()
+        when (state) {
+            MicState.IDLE -> {
+                Icon(
+                    imageVector = Icons.Outlined.Mic,
+                    contentDescription = "Microphone",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            MicState.LISTENING -> ListeningContent()
+            MicState.SPEAKING -> SpeakingContent()
         }
     }
 }
@@ -166,5 +168,57 @@ private fun ListeningContent() {
                 )
             }
         }
+    }
+}
+@Composable
+private fun SpeakingContent() {
+    val transition = rememberInfiniteTransition(label = "speaking")
+
+    // Pulsing glow ring
+    val glowScale by transition.animateFloat(
+        initialValue = 1f, targetValue = 1.35f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ), label = "glow_scale"
+    )
+    val glowAlpha by transition.animateFloat(
+        initialValue = 0.5f, targetValue = 0.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ), label = "glow_alpha"
+    )
+
+    // Icon pulse
+    val iconScale by transition.animateFloat(
+        initialValue = 0.9f, targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ), label = "icon_scale"
+    )
+
+    Box(modifier = Modifier.size(42.dp), contentAlignment = Alignment.Center) {
+        // Glow ring
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .scale(glowScale)
+                .graphicsLayer { alpha = glowAlpha }
+                .background(
+                    color = Color.White.copy(alpha = 0.35f),
+                    shape = CircleShape,
+                ),
+        )
+        // Speaker icon
+        Icon(
+            imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
+            contentDescription = "Speaking",
+            tint = Color.White,
+            modifier = Modifier
+                .size(22.dp)
+                .scale(iconScale),
+        )
     }
 }
