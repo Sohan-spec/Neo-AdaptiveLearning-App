@@ -65,29 +65,6 @@ object UsageStatsHelper {
     }
 
     /**
-     * Returns ALL raw entries from the last 24h with > 0 foreground time, unfiltered.
-     * Used by the debug bubble to show exactly what the OS returned.
-     */
-    fun getRawStatsForDebug(context: Context): List<Triple<String, String, Long>> {
-        if (!hasPermission(context)) return emptyList()
-        val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val endTime = System.currentTimeMillis()
-        val startTime = endTime - 24L * 60 * 60 * 1000
-        val statsMap = usm.queryAndAggregateUsageStats(startTime, endTime) ?: return emptyList()
-        val pm = context.packageManager
-        return statsMap.values
-            .filter { it.totalTimeInForeground > 0 }
-            .sortedByDescending { it.totalTimeInForeground }
-            .take(20) // show top 20 raw entries
-            .map { stats ->
-                val appName = try {
-                    pm.getApplicationLabel(pm.getApplicationInfo(stats.packageName, 0)).toString()
-                } catch (_: Exception) { stats.packageName }
-                Triple(appName, stats.packageName, stats.totalTimeInForeground / 60_000)
-            }
-    }
-
-    /**
      * Returns true for apps the user actually chose to install or that are
      * updatable system apps (Maps, Gmail, Chrome, etc.).
      *

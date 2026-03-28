@@ -31,7 +31,6 @@ data class Message(
     val content: String,
     val isTyping: Boolean = false,
     val visibleChars: Int = content.length,
-    val isDebugOnly: Boolean = false,  // shown in UI but never sent to LLM or persisted to DB
 )
 
 data class ChatSession(
@@ -169,22 +168,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (currentChatId != null) return
         val existing = repo.getAllChatsFlow().first()
         if (existing.isNotEmpty()) {
-            switchToChat(existing.first().id, showDebugBubble = false)
+            switchToChat(existing.first().id)
         } else {
             // Brand new install — treat exactly like tapping New Chat
             val chatId = repo.createChat("New Chat")
-            switchToChat(chatId, showDebugBubble = true)
+            switchToChat(chatId)
         }
     }
 
     fun createNewChat() {
         viewModelScope.launch {
             val chatId = repo.createChat("New Chat")
-            switchToChat(chatId, showDebugBubble = true)
+            switchToChat(chatId)
         }
     }
 
-    fun switchToChat(chatId: Long, showDebugBubble: Boolean = false) {
+    fun switchToChat(chatId: Long) {
         inferenceJob?.cancel()
         loadMessagesJob?.cancel()
         isThinking.value = false
@@ -200,61 +199,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 _messages.clear()
                 _messages.addAll(mapped)
             }
-            // Only inject debug bubble into genuinely new (empty) chats
-            if (showDebugBubble && entities.isEmpty()) {
-                val debugText = buildDebugUsageBubble()
-                withContext(Dispatchers.Main) {
-                    _messages.add(Message(role = "assistant", content = debugText, isDebugOnly = true))
-                }
-            }
         }
-    }
-
-    /** Fetches usage stats on IO and returns a formatted debug string shown as the first bubble. */
-    private suspend fun buildDebugUsageBubble(): String = withContext(Dispatchers.IO) {
-        val sb = StringBuilder()
-        sb.appendLine("📊 Debug — Usage Stats")
-        sb.appendLine()
-
-        val hasPermission = UsageStatsHelper.hasPermission(context)
-        sb.appendLine("Permission granted: $hasPermission")
-
-        if (!hasPermission) {
-            sb.appendLine()
-            sb.appendLine("⚠️ Usage access NOT granted.")
-            sb.appendLine("Go to Settings → Apps → Special app access → Usage access → enable Neo.")
-            return@withContext sb.toString().trimEnd()
-        }
-
-        // Raw unfiltered results — shows exactly what OS returned
-        val raw = UsageStatsHelper.getRawStatsForDebug(context)
-        sb.appendLine("Raw entries with foreground time (last 24h): ${raw.size}")
-        if (raw.isEmpty()) {
-            sb.appendLine()
-            sb.appendLine("⚠️ OS returned 0 entries with foreground time.")
-            sb.appendLine("Make sure you have used other apps in the last 24 hours.")
-        } else {
-            sb.appendLine()
-            sb.appendLine("Top raw entries (unfiltered):")
-            raw.take(10).forEach { (name, pkg, mins) ->
-                sb.appendLine("  • $name ($pkg) — ${mins}min")
-            }
-        }
-
-        // Filtered results — what actually goes into the system prompt
-        val filtered = UsageStatsHelper.getTopApps(context, 3)
-        sb.appendLine()
-        sb.appendLine("Filtered top-3 sent to LLM: ${filtered.size}")
-        if (filtered.isNotEmpty()) {
-            filtered.forEach { app ->
-                sb.appendLine("  ✓ ${app.appName} — ${app.totalMinutes}min")
-            }
-        }
-
-        sb.appendLine()
-        sb.appendLine("─────────────────────")
-        sb.appendLine("Normal chat starts now. Ask me what apps you've used!")
-        sb.toString().trimEnd()
     }
 
     fun deleteChat(chatId: Long) {
@@ -415,9 +360,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         isThinking.value = true
 
-        // Snapshot history on Main before any suspension — this is the source of truth
-        // for what the model sees. Excludes streaming placeholders and debug-only bubbles.
-        val historySnapshot = _messages.toList().filter { !it.isTyping && !it.isDebugOnly }
+        // Snapshot history on Main before any suspension — excludes streaming placeholders.
+        val historySnapshot = _messages.toList().filter { !it.isTyping }
 
         // Add streaming placeholder immediately so UI shows activity
         val streamIdx = _messages.size
