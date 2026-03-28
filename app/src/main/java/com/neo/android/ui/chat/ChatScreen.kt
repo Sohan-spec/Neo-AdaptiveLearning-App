@@ -221,6 +221,9 @@ fun ChatScreen(
                 vm.createNewChat()
                 sidebarVisible = false
             },
+            onDeleteChat = { session ->
+                vm.deleteChat(session.id)
+            },
         )
 
         // ── Layer 4: Live mode overlay ───────────────────────

@@ -177,8 +177,15 @@ Java_com_neo_android_engine_LlamaCppBridge_runInference(
         return -4;
     }
 
-    // Clear KV cache
+    // Clear KV cache — wipes all previous conversation tokens from the context window
     llama_kv_self_clear(g_ctx);
+
+    // Reset sampler state (RNG seed etc.) for a clean generation each call
+    llama_sampler_reset(g_sampler);
+
+    // Log first 300 chars of prompt for debugging (visible in Logcat with tag LlmBridge)
+    LOGI("Prompt (first 300 chars): %.300s", prompt_str.c_str());
+    LOGI("Prompt total tokens: %d, max new tokens: %d", n_prompt_tokens, maxTokens);
 
     // Process prompt in batches
     llama_batch batch = llama_batch_init(512, 0, 1);

@@ -24,12 +24,14 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class Message(
     val role: String,
     val content: String,
     val isTyping: Boolean = false,
     val visibleChars: Int = content.length,
+    val isDebugOnly: Boolean = false,  // shown in UI but never sent to LLM or persisted to DB
 )
 
 data class ChatSession(
@@ -58,6 +60,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // ── Current chat tracking ───────────────────────────────
     private var currentChatId: Long? = null
     private var inferenceJob: Job? = null
+    private var loadMessagesJob: Job? = null
     private var modelLoaded = false
 
     // ── Chat sessions ────────────────────────────────────────
@@ -166,36 +169,92 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (currentChatId != null) return
         val existing = repo.getAllChatsFlow().first()
         if (existing.isNotEmpty()) {
-            switchToChat(existing.first().id)
+            switchToChat(existing.first().id, showDebugBubble = false)
         } else {
-            createNewChat()
+            // Brand new install — treat exactly like tapping New Chat
+            val chatId = repo.createChat("New Chat")
+            switchToChat(chatId, showDebugBubble = true)
         }
     }
 
     fun createNewChat() {
         viewModelScope.launch {
             val chatId = repo.createChat("New Chat")
-            switchToChat(chatId)
+            switchToChat(chatId, showDebugBubble = true)
         }
     }
 
-    fun switchToChat(chatId: Long) {
+    fun switchToChat(chatId: Long, showDebugBubble: Boolean = false) {
         inferenceJob?.cancel()
+        loadMessagesJob?.cancel()
         isThinking.value = false
         currentChatId = chatId
         _messages.clear()
+        // Update sidebar active state immediately
+        _chatSessions.value = _chatSessions.value.map { it.copy(isActive = it.id == chatId) }
 
-        viewModelScope.launch {
-            repo.getMessagesForChat(chatId).collectLatest { entities ->
+        loadMessagesJob = viewModelScope.launch(Dispatchers.IO) {
+            val entities = repo.getMessagesForChat(chatId).first()
+            val mapped = entities.map { e -> Message(role = e.role, content = e.content) }
+            withContext(Dispatchers.Main) {
                 _messages.clear()
-                _messages.addAll(entities.map { e ->
-                    Message(role = e.role, content = e.content)
-                })
+                _messages.addAll(mapped)
+            }
+            // Only inject debug bubble into genuinely new (empty) chats
+            if (showDebugBubble && entities.isEmpty()) {
+                val debugText = buildDebugUsageBubble()
+                withContext(Dispatchers.Main) {
+                    _messages.add(Message(role = "assistant", content = debugText, isDebugOnly = true))
+                }
+            }
+        }
+    }
+
+    /** Fetches usage stats on IO and returns a formatted debug string shown as the first bubble. */
+    private suspend fun buildDebugUsageBubble(): String = withContext(Dispatchers.IO) {
+        val sb = StringBuilder()
+        sb.appendLine("📊 Debug — Usage Stats")
+        sb.appendLine()
+
+        val hasPermission = UsageStatsHelper.hasPermission(context)
+        sb.appendLine("Permission granted: $hasPermission")
+
+        if (!hasPermission) {
+            sb.appendLine()
+            sb.appendLine("⚠️ Usage access NOT granted.")
+            sb.appendLine("Go to Settings → Apps → Special app access → Usage access → enable Neo.")
+            return@withContext sb.toString().trimEnd()
+        }
+
+        // Raw unfiltered results — shows exactly what OS returned
+        val raw = UsageStatsHelper.getRawStatsForDebug(context)
+        sb.appendLine("Raw entries with foreground time (last 24h): ${raw.size}")
+        if (raw.isEmpty()) {
+            sb.appendLine()
+            sb.appendLine("⚠️ OS returned 0 entries with foreground time.")
+            sb.appendLine("Make sure you have used other apps in the last 24 hours.")
+        } else {
+            sb.appendLine()
+            sb.appendLine("Top raw entries (unfiltered):")
+            raw.take(10).forEach { (name, pkg, mins) ->
+                sb.appendLine("  • $name ($pkg) — ${mins}min")
             }
         }
 
-        // Refresh active state in sidebar
-        _chatSessions.value = _chatSessions.value.map { it.copy(isActive = it.id == chatId) }
+        // Filtered results — what actually goes into the system prompt
+        val filtered = UsageStatsHelper.getTopApps(context, 3)
+        sb.appendLine()
+        sb.appendLine("Filtered top-3 sent to LLM: ${filtered.size}")
+        if (filtered.isNotEmpty()) {
+            filtered.forEach { app ->
+                sb.appendLine("  ✓ ${app.appName} — ${app.totalMinutes}min")
+            }
+        }
+
+        sb.appendLine()
+        sb.appendLine("─────────────────────")
+        sb.appendLine("Normal chat starts now. Ask me what apps you've used!")
+        sb.toString().trimEnd()
     }
 
     fun deleteChat(chatId: Long) {
@@ -210,23 +269,51 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // ── Prompt building ──────────────────────────────────────
-    private fun buildSystemPrompt(): String {
-        val usageInfo = if (UsageStatsHelper.hasPermission(context)) {
+
+    // Called on IO dispatcher — UsageStatsManager.queryAndAggregateUsageStats() can
+    // return empty results if invoked on the main thread on some Android versions.
+    private suspend fun buildSystemPromptOnIo(): String = withContext(Dispatchers.IO) {
+        val usageSection: String? = if (UsageStatsHelper.hasPermission(context)) {
             val apps = UsageStatsHelper.getTopApps(context, 3)
-            UsageStatsHelper.formatForPrompt(apps)
+            if (apps.isNotEmpty()) {
+                UsageStatsHelper.formatForPrompt(apps).also {
+                    Log.d(TAG, "Usage stats fetched: $it")
+                }
+            } else {
+                Log.w(TAG, "Usage permission granted but no app data returned (too early in day?)")
+                null
+            }
         } else {
-            "Usage data not available."
+            Log.w(TAG, "Usage stats permission NOT granted — omitting from prompt")
+            null
         }
-        return "You are Neo, a concise and friendly on-device AI assistant. " +
-            "User's top apps today:\n$usageInfo\n" +
-            "Use this context to be helpful. Keep responses brief and natural."
+
+        val sb = StringBuilder()
+        sb.append("You are Neo, a concise personal AI assistant running fully on-device.\n\n")
+
+        if (usageSection != null) {
+            // Only claim knowledge when we actually have real data
+            sb.append("REAL DATA — The user's most-used Android apps in the last 24 hours (actual device screen time):\n")
+            sb.append(usageSection)
+            sb.append("\n\n")
+            sb.append("Rules:\n")
+            sb.append("- When asked about app usage, quote the EXACT app names and times from the data above. NEVER invent numbers.\n")
+            sb.append("- Use this context to give personalized responses where relevant.\n")
+        } else {
+            sb.append("Rules:\n")
+            sb.append("- You do NOT have access to this user's app usage data. If asked about usage or screen time, say so clearly. Do NOT make up numbers.\n")
+        }
+        sb.append("- Answer all questions directly and accurately.\n")
+        sb.append("- Keep responses brief — 1-3 sentences unless the user asks for more detail.")
+
+        sb.toString()
     }
 
-    private fun buildPrompt(history: List<Message>): String {
+    private fun buildPrompt(history: List<Message>, systemPrompt: String): String {
         val sb = StringBuilder()
         sb.append("<|begin_of_text|>")
         sb.append("<|start_header_id|>system<|end_header_id|>\n\n")
-        sb.append(buildSystemPrompt())
+        sb.append(systemPrompt)
         sb.append("<|eot_id|>")
         for (msg in history) {
             sb.append("<|start_header_id|>${msg.role}<|end_header_id|>\n\n")
@@ -322,31 +409,38 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun runInference(chatId: Long) {
         if (!modelLoaded) {
-            // Fallback: show error message
             _messages.add(Message("assistant", "Model not loaded. Please restart the app."))
             return
         }
 
         isThinking.value = true
 
-        // Build prompt from current conversation history (exclude streaming message)
-        val history = _messages.toList().filter { !it.isTyping }
-        val prompt = buildPrompt(history)
+        // Snapshot history on Main before any suspension — this is the source of truth
+        // for what the model sees. Excludes streaming placeholders and debug-only bubbles.
+        val historySnapshot = _messages.toList().filter { !it.isTyping && !it.isDebugOnly }
 
-        // Add streaming placeholder
+        // Add streaming placeholder immediately so UI shows activity
         val streamIdx = _messages.size
         _messages.add(Message("assistant", "", isTyping = true, visibleChars = 0))
-        isThinking.value = false // hide typing indicator, show streaming message instead
+        isThinking.value = false
 
         inferenceJob = viewModelScope.launch {
+            // Build system prompt on IO — UsageStatsManager can block or return empty on Main
+            val systemPrompt = buildSystemPromptOnIo()
+            val prompt = buildPrompt(historySnapshot, systemPrompt)
+
+            // Log the full prompt so you can verify in Logcat what the model actually receives
+            Log.d(TAG, "════ PROMPT SENT TO LLM [chat=$chatId, turns=${historySnapshot.size}] ════")
+            Log.d(TAG, prompt)
+            Log.d(TAG, "════ END PROMPT ════")
+
             val responseBuilder = StringBuilder()
 
             LlmEngine.runInference(prompt, maxTokens = 400)
                 .catch { e ->
                     Log.e(TAG, "Inference error", e)
                     if (streamIdx < _messages.size) {
-                        val errorMsg = "Sorry, something went wrong. Please try again."
-                        _messages[streamIdx] = Message("assistant", errorMsg)
+                        _messages[streamIdx] = Message("assistant", "Sorry, something went wrong. Please try again.")
                     }
                 }
                 .collect { token ->
@@ -362,8 +456,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-            // Finalize: mark done + persist
             val finalText = responseBuilder.toString().trim()
+            Log.d(TAG, "LLM response: $finalText")
+
             if (streamIdx < _messages.size) {
                 _messages[streamIdx] = Message("assistant", finalText)
             }
@@ -381,7 +476,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 repo.updateChatTimestamp(chatId)
             }
 
-            // If initiated via mic or live mode, speak the reply
             if (isVoiceMode || isLiveMode.value) {
                 if (isLiveMode.value) {
                     liveMicState.value = MicState.SPEAKING
@@ -409,6 +503,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         inferenceJob?.cancel()
+        loadMessagesJob?.cancel()
         speechManager.destroy()
         viewModelScope.launch { LlmEngine.unloadModel() }
     }

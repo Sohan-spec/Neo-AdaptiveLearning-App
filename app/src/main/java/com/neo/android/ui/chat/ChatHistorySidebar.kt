@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,6 +63,7 @@ fun BoxScope.ChatHistorySidebar(
     onClose: () -> Unit,
     onSessionSelected: (ChatSession) -> Unit,
     onNewChat: () -> Unit = {},
+    onDeleteChat: (ChatSession) -> Unit = {},
 ) {
     // Scrim
     AnimatedVisibility(
@@ -201,6 +203,7 @@ fun BoxScope.ChatHistorySidebar(
                     ChatSessionItem(
                         session = session,
                         onClick = { onSessionSelected(session) },
+                        onDelete = { onDeleteChat(session) },
                     )
                 }
             }
@@ -212,6 +215,7 @@ fun BoxScope.ChatHistorySidebar(
 private fun ChatSessionItem(
     session: ChatSession,
     onClick: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val bgColor = if (session.isActive) SpatialSurfaceRaised else Color(0x55FFFFFF)
     val borderColor = if (session.isActive) AccentPrimary.copy(alpha = 0.3f) else BorderLight
@@ -239,24 +243,45 @@ private fun ChatSessionItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = session.title,
-                    fontFamily = DmSans,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (session.isActive) AccentPrimary else TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (session.isActive) {
-                    Box(
-                        modifier = Modifier
-                            .padding(start = 8.dp)
-                            .size(8.dp)
-                            .background(AccentPrimary, CircleShape),
+                // Title + active dot
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        text = session.title,
+                        fontFamily = DmSans,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (session.isActive) AccentPrimary else TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (session.isActive) {
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 6.dp)
+                                .size(7.dp)
+                                .background(AccentPrimary, CircleShape),
+                        )
+                    }
                 }
+
+                // Delete icon
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = "Delete chat",
+                    tint = TextMuted.copy(alpha = 0.6f),
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(16.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onDelete,
+                        ),
+                )
             }
             Text(
                 text = session.preview,
