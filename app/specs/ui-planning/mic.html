@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Voice Interface - Orb States</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&amp;family=DM+Sans:wght@400;500&amp;family=JetBrains+Mono:wght@400;500&amp;family=Epilogue:wght@700&amp;family=Manrope:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary-fixed": "#d8e2ff",
+                        "secondary": "#d0bcff",
+                        "surface-variant": "#2f3446",
+                        "tertiary-container": "#00a392",
+                        "inverse-on-surface": "#2a3041",
+                        "surface-tint": "#adc6ff",
+                        "surface-container": "#191f30",
+                        "primary": "#adc6ff",
+                        "inverse-surface": "#dde2f9",
+                        "surface-container-high": "#24293b",
+                        "surface-container-lowest": "#080e1e",
+                        "surface-container-low": "#151b2c",
+                        "on-surface-variant": "#c2c6d6",
+                        "on-primary-fixed-variant": "#004395",
+                        "tertiary-fixed-dim": "#4fdbc8",
+                        "primary-container": "#4d8eff",
+                        "on-background": "#dde2f9",
+                        "surface-bright": "#33394b",
+                        "on-primary-fixed": "#001a42",
+                        "on-tertiary": "#003731",
+                        "on-secondary-fixed": "#23005c",
+                        "on-tertiary-container": "#00302a",
+                        "tertiary-fixed": "#71f8e4",
+                        "on-error": "#690005",
+                        "surface-container-highest": "#2f3446",
+                        "secondary-fixed": "#e9ddff",
+                        "secondary-container": "#571bc1",
+                        "primary-fixed-dim": "#adc6ff",
+                        "on-secondary-fixed-variant": "#5516be",
+                        "outline-variant": "#424754",
+                        "on-tertiary-fixed-variant": "#005048",
+                        "outline": "#8c909f",
+                        "surface-dim": "#0d1323",
+                        "inverse-primary": "#005ac2",
+                        "surface": "#0d1323",
+                        "error": "#ffb4ab",
+                        "background": "#0d1323",
+                        "on-secondary-container": "#c4abff",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#00201c",
+                        "tertiary": "#4fdbc8",
+                        "on-surface": "#dde2f9",
+                        "secondary-fixed-dim": "#d0bcff",
+                        "on-primary": "#002e6a",
+                        "error-container": "#93000a",
+                        "on-secondary": "#3c0091",
+                        "on-primary-container": "#00285d"
+                    },
+                    fontFamily: {
+                        "headline": ["Epilogue"],
+                        "body": ["Manrope"],
+                        "label": ["JetBrains Mono"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "2xl": "1.5rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .refractive-sheen-top {
+            background: linear-gradient(135deg, rgba(255,255,255, 0.2) 0%, transparent 50%);
+            mask-image: linear-gradient(to bottom, black, transparent);
+        }
+        .glass-border-bright {
+            border: 1px solid rgba(255, 255, 255, 0.22);
+        }
+        .gradient-accent-primary {
+            background: linear-gradient(135deg, #4d8eff 0%, #8b5cf6 100%);
+        }
+        .glow-primary {
+            box-shadow: 0 0 20px rgba(77, 142, 255, 0.4);
+        }
+        .conic-spin {
+            background: conic-gradient(from 0deg, #4d8eff, #8b5cf6, #4d8eff);
+            animation: spin 3s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .waveform-bar {
+            width: 3px;
+            background: white;
+            border-radius: 9999px;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-[#0a1020] text-on-background font-body min-h-screen flex flex-col items-center justify-center overflow-hidden">
+
+<!-- Main Canvas -->
+<main class="relative w-full max-w-6xl px-6 flex flex-col items-center gap-16 py-32">
+
+<!-- The 5-State Component System Row -->
+<div class="w-full flex flex-wrap justify-between items-end gap-12 bg-white/5 backdrop-blur-xl rounded-[32px] p-16 border border-white/10 relative overflow-hidden">
+<!-- Decorative refractive sheen -->
+<div class="absolute inset-0 refractive-sheen-top pointer-events-none"></div>
+<!-- STATE 1: IDLE -->
+<div class="flex flex-col items-center gap-6 group transition-all duration-300">
+<div class="relative flex items-center justify-center w-[48px] h-[48px] gradient-accent-primary rounded-full glow-primary cursor-pointer active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-white text-[20px]" data-icon="mic_none">mic_none</span>
+</div>
+<span class="font-label text-[10px] text-white/40 tracking-widest uppercase group-hover:text-blue-400 transition-colors">IDLE</span>
+</div>
+<!-- STATE 2: LISTENING -->
+<div class="flex flex-col items-center gap-6 group">
+<div class="relative flex items-center justify-center w-[52px] h-[52px]">
+<!-- Outer Ring -->
+<div class="absolute inset-0 border border-blue-400/25 rounded-full animate-[ping_1.2s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
+<!-- Inner Ring -->
+<div class="absolute inset-0 scale-[0.8] border border-blue-400/40 rounded-full animate-[ping_1.2s_cubic-bezier(0,0,0.2,1)_infinite] delay-300"></div>
+<!-- Orb -->
+<div class="relative w-full h-full gradient-accent-primary rounded-full glow-primary flex items-center justify-center gap-[2px]">
+<div class="waveform-bar h-[12px] animate-[bounce_0.8s_infinite]"></div>
+<div class="waveform-bar h-[18px] animate-[bounce_1.0s_infinite_0.1s]"></div>
+<div class="waveform-bar h-[22px] animate-[bounce_1.2s_infinite_0.2s]"></div>
+<div class="waveform-bar h-[16px] animate-[bounce_0.9s_infinite_0.3s]"></div>
+<div class="waveform-bar h-[10px] animate-[bounce_0.7s_infinite_0.4s]"></div>
+</div>
+</div>
+<span class="font-label text-[10px] text-white/40 tracking-widest uppercase group-hover:text-blue-400 transition-colors">LISTENING</span>
+</div>
+<!-- STATE 3: PROCESSING -->
+<div class="flex flex-col items-center gap-6 group">
+<div class="relative w-[48px] h-[48px] rounded-full overflow-hidden conic-spin p-[1px] glow-primary">
+<div class="w-full h-full bg-[#0a1020] rounded-full flex items-center justify-center">
+<div class="w-[34px] h-[34px] bg-[#191f30] rounded-full border border-white/5 flex items-center justify-center">
+<div class="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse shadow-[0_0_8px_#3b82f6]"></div>
+</div>
+</div>
+</div>
+<span class="font-label text-[10px] text-white/40 tracking-widest uppercase group-hover:text-blue-400 transition-colors">PROCESSING</span>
+</div>
+<!-- STATE 4: TTS SPEAKING -->
+<div class="flex flex-col items-center gap-6 group">
+<div class="relative flex items-center justify-center w-[52px] h-[52px] gradient-accent-primary rounded-full animate-[pulse_0.8s_ease-in-out_infinite] shadow-[0_0_32px_rgba(77,142,255,0.6)]">
+<span class="material-symbols-outlined text-white text-[24px]" data-icon="volume_up">volume_up</span>
+</div>
+<span class="font-label text-[10px] text-white/40 tracking-widest uppercase group-hover:text-blue-400 transition-colors">SPEAKING</span>
+</div>
+<!-- STATE 5: MUTED -->
+<div class="flex flex-col items-center gap-6 group opacity-60">
+<div class="relative flex items-center justify-center w-[44px] h-[44px] bg-white/5 border border-white/10 rounded-full cursor-not-allowed">
+<span class="material-symbols-outlined text-white/40 text-[20px]" data-icon="mic_off">mic_off</span>
+</div>
+<span class="font-label text-[10px] text-white/40 tracking-widest uppercase">MUTED</span>
+</div>
+</div>
+</main>
+</body></html>
