@@ -63,7 +63,7 @@ Neo is an Android AI assistant powered by a quantized Llama 3.2 model running lo
 
 ## Demo Video
 
-<video src="project-demo.mp4" width="400" controls></video>
+<video src="https://github.com/Crisiswastaken/Neo-Rocket-Final/blob/main/project-demo.mp4" width="400" controls></video>
 
 ---
 
