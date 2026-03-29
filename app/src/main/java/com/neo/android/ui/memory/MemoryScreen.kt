@@ -1,7 +1,16 @@
 package com.neo.android.ui.memory
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,13 +33,29 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -65,70 +90,175 @@ fun MemoryScreen(
 ) {
     val memories by vm.memories.collectAsState()
     val selectedCategory by vm.selectedCategory.collectAsState()
+    val totalCount by vm.totalCount.collectAsState()
+    val categoryCount by vm.categoryCount.collectAsState()
+    val lastUpdated by vm.lastUpdated.collectAsState()
+    val categories by vm.categories.collectAsState()
+    val isExtracting by vm.isExtracting.collectAsState()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SpatialBg)
-            .statusBarsPadding()
-            .navigationBarsPadding(),
-    ) {
-        // ── Header ───────────────────────────────────────────
-        MemoryHeader(onBack = onBack)
+    var showAddDialog by remember { mutableStateOf(false) }
+    var editingEntry by remember { mutableStateOf<MemoryEntry?>(null) }
+    var deletingEntry by remember { mutableStateOf<MemoryEntry?>(null) }
 
+    Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp),
+                .background(SpatialBg)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
         ) {
-            Spacer(modifier = Modifier.height(20.dp))
+            // ── Header ───────────────────────────────────────
+            MemoryHeader(onBack = onBack)
 
-            // ── Overview Cards ───────────────────────────────
-            OverviewCardsRow(
-                totalEntries = vm.totalCount,
-                categoryCount = vm.categoryCount,
-                lastUpdated = vm.lastUpdated,
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp),
+            ) {
+                Spacer(modifier = Modifier.height(20.dp))
 
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // ── Divider ──────────────────────────────────────
-            GradientDivider()
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // ── Category Filter ──────────────────────────────
-            SectionTitle("CATEGORIES")
-            Spacer(modifier = Modifier.height(12.dp))
-            CategoryFilterRow(
-                categories = vm.categories,
-                selectedCategory = selectedCategory,
-                onCategorySelected = { vm.selectCategory(it) },
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // ── Divider ──────────────────────────────────────
-            GradientDivider()
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // ── Memory Entries ────────────────────────────────
-            SectionTitle("MEMORY ENTRIES")
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (memories.isEmpty()) {
-                EmptyState()
-            } else {
-                memories.forEach { entry ->
-                    MemoryCard(entry = entry)
-                    Spacer(modifier = Modifier.height(12.dp))
+                // ── Learning indicator ───────────────────────
+                AnimatedVisibility(
+                    visible = isExtracting,
+                    enter = fadeIn() + slideInVertically(),
+                    exit = fadeOut() + slideOutVertically(),
+                ) {
+                    LearningBanner()
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
-            }
 
-            Spacer(modifier = Modifier.height(32.dp))
+                // ── Overview Cards ───────────────────────────
+                OverviewCardsRow(
+                    totalEntries = totalCount,
+                    categoryCount = categoryCount,
+                    lastUpdated = lastUpdated,
+                )
+
+                Spacer(modifier = Modifier.height(28.dp))
+                GradientDivider()
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // ── Category Filter ──────────────────────────
+                SectionTitle("CATEGORIES")
+                Spacer(modifier = Modifier.height(12.dp))
+                CategoryFilterRow(
+                    categories = categories,
+                    selectedCategory = selectedCategory,
+                    onCategorySelected = { vm.selectCategory(it) },
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+                GradientDivider()
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // ── Memory Entries ────────────────────────────
+                SectionTitle("MEMORY ENTRIES")
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (memories.isEmpty()) {
+                    EmptyState(onAddManually = { showAddDialog = true })
+                } else {
+                    memories.forEach { entry ->
+                        MemoryCard(
+                            entry = entry,
+                            onEdit = { editingEntry = entry },
+                            onDelete = { deletingEntry = entry },
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+            }
         }
+
+        // ── FAB ──────────────────────────────────────────────
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(24.dp)
+                .navigationBarsPadding()
+                .size(52.dp)
+                .neuShadow(
+                    cornerRadius = 16.dp,
+                    darkColor = Color(0x66A3B1C6),
+                    lightColor = Color(0xCCFFFFFF),
+                    darkOffset = 4.dp,
+                    lightOffset = (-2).dp,
+                    blur = 8.dp,
+                )
+                .background(
+                    Brush.linearGradient(listOf(AccentGradStart, AccentGradEnd)),
+                    RoundedCornerShape(16.dp),
+                )
+                .clip(RoundedCornerShape(16.dp))
+                .clickable { showAddDialog = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Add,
+                contentDescription = "Add memory",
+                tint = Color.White,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+    }
+
+    // ── Dialogs ──────────────────────────────────────────────
+    if (showAddDialog) {
+        MemoryFormDialog(
+            title = "Add Memory",
+            onDismiss = { showAddDialog = false },
+            onSave = { category, memTitle, content ->
+                vm.addMemory(category, memTitle, content)
+                showAddDialog = false
+            },
+        )
+    }
+
+    if (editingEntry != null) {
+        val entry = editingEntry!!
+        MemoryFormDialog(
+            title = "Edit Memory",
+            initialCategory = entry.category,
+            initialTitle = entry.title,
+            initialContent = entry.content,
+            onDismiss = { editingEntry = null },
+            onSave = { category, memTitle, content ->
+                vm.editMemory(entry.id, category, memTitle, content)
+                editingEntry = null
+            },
+        )
+    }
+
+    if (deletingEntry != null) {
+        val entry = deletingEntry!!
+        AlertDialog(
+            onDismissRequest = { deletingEntry = null },
+            title = { Text("Delete Memory", fontFamily = DmSans, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Delete \"${entry.title}\"? This cannot be undone.",
+                    fontFamily = DmSans,
+                    color = TextSecondary,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteMemory(entry.id)
+                    deletingEntry = null
+                }) {
+                    Text("Delete", color = ColorDanger, fontFamily = DmSans, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingEntry = null }) {
+                    Text("Cancel", fontFamily = DmSans)
+                }
+            },
+        )
     }
 }
 
@@ -351,7 +481,11 @@ private fun CategoryChip(
 
 // ── Memory Card ──────────────────────────────────────────────────
 @Composable
-private fun MemoryCard(entry: MemoryEntry) {
+private fun MemoryCard(
+    entry: MemoryEntry,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
     val cardShape = RoundedCornerShape(18.dp)
 
     Column(
@@ -374,23 +508,63 @@ private fun MemoryCard(entry: MemoryEntry) {
                 shape = cardShape,
             )
             .clip(cardShape)
+            .clickable { onEdit() }
             .padding(16.dp),
     ) {
-        // Top row: category badge + timestamp
+        // Top row: category badge + source + actions + timestamp
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CategoryBadge(category = entry.category)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CategoryBadge(category = entry.category)
+                SourceBadge(source = entry.source)
+            }
 
-            Text(
-                text = formatRelativeTime(entry.updatedAt),
-                fontFamily = DmSans,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                color = TextMuted,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = formatRelativeTime(entry.updatedAt),
+                    fontFamily = DmSans,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextMuted,
+                )
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onEdit() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Edit,
+                        contentDescription = "Edit",
+                        tint = TextMuted,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onDelete() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = "Delete",
+                        tint = ColorDanger.copy(alpha = 0.7f),
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -517,9 +691,196 @@ private fun ConfidenceBar(confidence: Float) {
     }
 }
 
+// ── Source Badge ──────────────────────────────────────────────────
+@Composable
+private fun SourceBadge(source: String) {
+    val label = if (source == "manual") "Manual" else "Auto"
+    val (bgColor, textColor) = if (source == "manual") {
+        Color(0x1E4D7BFF) to Color(0xFF2B4C9B)
+    } else {
+        Color(0x1AA3B1C6) to TextMuted
+    }
+
+    Box(
+        modifier = Modifier
+            .background(bgColor, RoundedCornerShape(100.dp))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Text(
+            text = label,
+            fontFamily = DmSans,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = textColor,
+            letterSpacing = 0.04.sp,
+        )
+    }
+}
+
+// ── Learning Banner ──────────────────────────────────────────────
+@Composable
+private fun LearningBanner() {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.6f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulseAlpha",
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Color(0x1E4D7BFF),
+                RoundedCornerShape(12.dp),
+            )
+            .border(1.dp, Color(0x334D7BFF), RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_brain),
+            contentDescription = null,
+            tint = AccentPrimary,
+            modifier = Modifier
+                .size(18.dp)
+                .alpha(alpha),
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = "Neo is learning from your conversations…",
+            fontFamily = DmSans,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = AccentPrimary,
+        )
+    }
+}
+
+// ── Memory Form Dialog (Add / Edit) ─────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MemoryFormDialog(
+    title: String,
+    initialCategory: String = "Preferences",
+    initialTitle: String = "",
+    initialContent: String = "",
+    onDismiss: () -> Unit,
+    onSave: (category: String, title: String, content: String) -> Unit,
+) {
+    val categoryOptions = listOf("Preferences", "Facts", "Interests", "Habits", "Context")
+    var category by remember { mutableStateOf(initialCategory) }
+    var memTitle by remember { mutableStateOf(initialTitle) }
+    var content by remember { mutableStateOf(initialContent) }
+    var categoryExpanded by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title, fontFamily = DmSans, fontWeight = FontWeight.Bold)
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onDismiss() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Close",
+                        tint = TextMuted,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ExposedDropdownMenuBox(
+                    expanded = categoryExpanded,
+                    onExpandedChange = { categoryExpanded = !categoryExpanded },
+                ) {
+                    OutlinedTextField(
+                        value = category,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Category", fontFamily = DmSans) },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = categoryExpanded,
+                        onDismissRequest = { categoryExpanded = false },
+                    ) {
+                        categoryOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option, fontFamily = DmSans) },
+                                onClick = {
+                                    category = option
+                                    categoryExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = memTitle,
+                    onValueChange = { memTitle = it },
+                    label = { Text("Title", fontFamily = DmSans) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    label = { Text("Content", fontFamily = DmSans) },
+                    minLines = 3,
+                    maxLines = 5,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (memTitle.isNotBlank() && content.isNotBlank()) {
+                        onSave(category, memTitle.trim(), content.trim())
+                    }
+                },
+                enabled = memTitle.isNotBlank() && content.isNotBlank(),
+            ) {
+                Text(
+                    "Save",
+                    color = if (memTitle.isNotBlank() && content.isNotBlank()) AccentPrimary else TextMuted,
+                    fontFamily = DmSans,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", fontFamily = DmSans)
+            }
+        },
+    )
+}
+
 // ── Empty State ──────────────────────────────────────────────────
 @Composable
-private fun EmptyState() {
+private fun EmptyState(onAddManually: () -> Unit) {
     val cardShape = RoundedCornerShape(18.dp)
 
     Box(
@@ -569,6 +930,18 @@ private fun EmptyState() {
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Normal,
                 color = TextMuted,
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Or add a memory manually",
+                fontFamily = DmSans,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = AccentPrimary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onAddManually() }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
             )
         }
     }

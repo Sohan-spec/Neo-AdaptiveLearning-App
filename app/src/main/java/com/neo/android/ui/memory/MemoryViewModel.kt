@@ -1,117 +1,153 @@
 package com.neo.android.ui.memory
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.util.Log
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.neo.android.data.AppDatabase
+import com.neo.android.data.MemoryRepository
+import com.neo.android.data.entity.MemoryEntity
+import com.neo.android.engine.EmbeddingEngine
+import com.neo.android.engine.MemoryExtractor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
-class MemoryViewModel : ViewModel() {
+class MemoryViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val mockMemories = listOf(
-        MemoryEntry(
-            id = "1",
-            category = "Preferences",
-            title = "Prefers concise responses",
-            content = "User tends to ask follow-up questions when responses are too long. Prefers bullet-point answers and short paragraphs over detailed explanations.",
-            confidence = 0.92f,
-            updatedAt = System.currentTimeMillis() - 2 * 60 * 60 * 1000, // 2h ago
-        ),
-        MemoryEntry(
-            id = "2",
-            category = "Facts",
-            title = "Software developer",
-            content = "Works as an Android developer. Primarily uses Kotlin and Jetpack Compose. Familiar with MVVM architecture and coroutines.",
-            confidence = 0.88f,
-            updatedAt = System.currentTimeMillis() - 5 * 60 * 60 * 1000, // 5h ago
-        ),
-        MemoryEntry(
-            id = "3",
-            category = "Interests",
-            title = "Interested in AI/ML",
-            content = "Frequently asks about on-device machine learning, LLM inference, and vector databases. Exploring RAG implementations for mobile.",
-            confidence = 0.85f,
-            updatedAt = System.currentTimeMillis() - 1 * 24 * 60 * 60 * 1000, // 1d ago
-        ),
-        MemoryEntry(
-            id = "4",
-            category = "Habits",
-            title = "Codes late at night",
-            content = "Most conversations happen between 10 PM and 2 AM. Usually works on personal projects during this time rather than work tasks.",
-            confidence = 0.78f,
-            updatedAt = System.currentTimeMillis() - 2 * 24 * 60 * 60 * 1000, // 2d ago
-        ),
-        MemoryEntry(
-            id = "5",
-            category = "Context",
-            title = "Building a personal AI assistant",
-            content = "Currently working on an Android app called Neo that runs LLMs locally. Uses llama.cpp for inference with quantized models.",
-            confidence = 0.95f,
-            updatedAt = System.currentTimeMillis() - 30 * 60 * 1000, // 30m ago
-        ),
-        MemoryEntry(
-            id = "6",
-            category = "Preferences",
-            title = "Dark mode enthusiast",
-            content = "Prefers dark UI themes across all applications. Has mentioned eye strain with light backgrounds during night coding sessions.",
-            confidence = 0.72f,
-            updatedAt = System.currentTimeMillis() - 3 * 24 * 60 * 60 * 1000, // 3d ago
-        ),
-        MemoryEntry(
-            id = "7",
-            category = "Facts",
-            title = "Located in the US",
-            content = "Based on timezone references and language patterns, user appears to be located in the United States, likely Pacific timezone.",
-            confidence = 0.65f,
-            updatedAt = System.currentTimeMillis() - 5 * 24 * 60 * 60 * 1000, // 5d ago
-        ),
-        MemoryEntry(
-            id = "8",
-            category = "Interests",
-            title = "Privacy-focused computing",
-            content = "Strongly prefers on-device processing over cloud APIs. Values data privacy and frequently discusses local-first architectures.",
-            confidence = 0.90f,
-            updatedAt = System.currentTimeMillis() - 12 * 60 * 60 * 1000, // 12h ago
-        ),
-        MemoryEntry(
-            id = "9",
-            category = "Habits",
-            title = "Iterative development style",
-            content = "Tends to build features incrementally, testing each small change. Prefers quick feedback loops and frequent builds.",
-            confidence = 0.82f,
-            updatedAt = System.currentTimeMillis() - 4 * 24 * 60 * 60 * 1000, // 4d ago
-        ),
-        MemoryEntry(
-            id = "10",
-            category = "Context",
-            title = "Uses neumorphic design system",
-            content = "The Neo app uses a custom spatial/neumorphic design language with glassmorphism elements. DM Sans font, accent blue #4D7BFF.",
-            confidence = 0.97f,
-            updatedAt = System.currentTimeMillis() - 1 * 60 * 60 * 1000, // 1h ago
-        ),
-    )
+    private val TAG = "MemoryViewModel"
+    private val db = AppDatabase.getInstance(application)
+    private val memoryRepo = MemoryRepository(db.memoryDao())
 
-    val categories: List<String> = listOf("All") +
-        mockMemories.map { it.category }.distinct().sorted()
-
+    // ── Category filter ──────────────────────────────────────
     private val _selectedCategory = MutableStateFlow<String?>(null)
     val selectedCategory: StateFlow<String?> = _selectedCategory.asStateFlow()
 
-    private val _memories = MutableStateFlow(mockMemories)
-    val memories: StateFlow<List<MemoryEntry>> = _memories.asStateFlow()
+    // ── All memories from Room ───────────────────────────────
+    private val allMemories: StateFlow<List<MemoryEntry>> =
+        memoryRepo.getAllMemoriesFlow()
+            .map { entities -> entities.map { it.toEntry() } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val totalCount: Int = mockMemories.size
+    // ── Filtered memories ────────────────────────────────────
+    val memories: StateFlow<List<MemoryEntry>> =
+        combine(allMemories, _selectedCategory) { all, category ->
+            if (category == null) all else all.filter { it.category == category }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val categoryCount: Int = mockMemories.map { it.category }.distinct().size
+    // ── Derived stats ────────────────────────────────────────
+    val totalCount: StateFlow<Int> =
+        allMemories.map { it.size }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val lastUpdated: String = "Just now"
+    val categoryCount: StateFlow<Int> =
+        allMemories.map { it.map { m -> m.category }.distinct().size }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    val lastUpdated: StateFlow<String> =
+        allMemories.map { entries ->
+            val newest = entries.maxByOrNull { it.updatedAt }
+            if (newest != null) formatRelativeTime(newest.updatedAt) else "Never"
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "Never")
+
+    val categories: StateFlow<List<String>> =
+        allMemories.map { entries ->
+            listOf("All") + entries.map { it.category }.distinct().sorted()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("All"))
+
+    // ── Extraction state ─────────────────────────────────────
+    val isExtracting: StateFlow<Boolean> = MemoryExtractor.isExtracting
+
+    // ── Actions ──────────────────────────────────────────────
     fun selectCategory(category: String?) {
-        val effective = if (category == "All") null else category
-        _selectedCategory.value = effective
-        _memories.value = if (effective == null) {
-            mockMemories
-        } else {
-            mockMemories.filter { it.category == effective }
+        _selectedCategory.value = if (category == "All") null else category
+    }
+
+    fun addMemory(category: String, title: String, content: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val textToEmbed = "$title. $content"
+                val embedding = EmbeddingEngine.embed(textToEmbed)
+                val embeddingBytes = if (embedding != null) {
+                    MemoryRepository.floatsToBytes(embedding)
+                } else null
+
+                memoryRepo.insertMemory(
+                    MemoryEntity(
+                        category = category,
+                        title = title,
+                        content = content,
+                        confidence = 1.0f,
+                        embedding = embeddingBytes,
+                        source = "manual",
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to add memory", e)
+            }
+        }
+    }
+
+    fun editMemory(id: Long, category: String, title: String, content: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val existing = memoryRepo.getById(id) ?: return@launch
+                val textToEmbed = "$title. $content"
+                val embedding = EmbeddingEngine.embed(textToEmbed)
+                val embeddingBytes = if (embedding != null) {
+                    MemoryRepository.floatsToBytes(embedding)
+                } else existing.embedding
+
+                memoryRepo.updateMemory(
+                    existing.copy(
+                        category = category,
+                        title = title,
+                        content = content,
+                        embedding = embeddingBytes,
+                        updatedAtMillis = System.currentTimeMillis(),
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to edit memory", e)
+            }
+        }
+    }
+
+    fun deleteMemory(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                memoryRepo.deleteMemory(id)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete memory", e)
+            }
+        }
+    }
+
+    private fun MemoryEntity.toEntry() = MemoryEntry(
+        id = id,
+        category = category,
+        title = title,
+        content = content,
+        confidence = confidence,
+        updatedAt = updatedAtMillis,
+        source = source,
+    )
+
+    private fun formatRelativeTime(millis: Long): String {
+        val diff = System.currentTimeMillis() - millis
+        val minutes = diff / 60_000
+        return when {
+            minutes < 1 -> "Just now"
+            minutes < 60 -> "${minutes}m ago"
+            minutes < 1440 -> "${minutes / 60}h ago"
+            minutes < 2880 -> "Yesterday"
+            else -> "${minutes / 1440}d ago"
         }
     }
 }

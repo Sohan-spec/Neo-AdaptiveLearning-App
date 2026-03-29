@@ -15,6 +15,7 @@ import com.neo.android.ui.loading.LoadingScreen
 import com.neo.android.ui.theme.NeoTheme
 
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

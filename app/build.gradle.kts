@@ -82,6 +82,9 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
+    // ONNX Runtime for on-device embeddings
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

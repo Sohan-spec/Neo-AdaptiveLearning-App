@@ -9,9 +9,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.neo.android.data.AppDatabase
 import com.neo.android.data.ChatRepository
+import com.neo.android.data.MemoryRepository
 import com.neo.android.data.entity.ChatEntity
+import com.neo.android.data.entity.MemoryEntity
 import com.neo.android.data.entity.MessageEntity
+import com.neo.android.engine.EmbeddingEngine
 import com.neo.android.engine.LlmEngine
+import com.neo.android.engine.MemoryExtractor
 import com.neo.android.model.ModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,6 +27,8 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 data class Message(
@@ -48,6 +54,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // ── Data layer ───────────────────────────────────────────
     private val db = AppDatabase.getInstance(application)
     private val repo = ChatRepository(db.chatDao(), db.messageDao())
+    private val memoryRepo = MemoryRepository(db.memoryDao())
+
+    // ── LLM thread safety (shared native model) ─────────────
+    private val llmMutex = Mutex()
 
     // ── Display messages (Room + streaming overlay) ──────────
     private val _messages = mutableStateListOf<Message>()
@@ -147,6 +157,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // Load model + create or restore initial chat
         viewModelScope.launch {
             loadLlmModel()
+            loadEmbeddingModel()
             ensureCurrentChat()
         }
     }
@@ -160,6 +171,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         modelLoaded = LlmEngine.loadModel(modelPath, contextSize = 8192)
         Log.i(TAG, "Model loaded: $modelLoaded")
+    }
+
+    private suspend fun loadEmbeddingModel() {
+        val embeddingPath = ModelManager.getEmbeddingModelPath(context)
+        if (!ModelManager.isEmbeddingModelReady(context)) {
+            Log.w(TAG, "Embedding model not found at $embeddingPath")
+            return
+        }
+        EmbeddingEngine.loadModel(context, embeddingPath)
+        Log.i(TAG, "Embedding engine ready: ${EmbeddingEngine.isReady}")
     }
 
     // ── Chat management ──────────────────────────────────────
@@ -178,14 +199,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun createNewChat() {
         viewModelScope.launch {
             val chatId = repo.createChat("New Chat")
-            switchToChat(chatId)
+            switchToChat(chatId)  // switchToChat snapshots messages and handles extraction in background
         }
     }
 
     fun switchToChat(chatId: Long) {
+        val previousMessages = _messages.toList()
         inferenceJob?.cancel()
         loadMessagesJob?.cancel()
         isThinking.value = false
+
+        // Trigger extraction from previous chat before switching
+        if (previousMessages.size >= 2) {
+            viewModelScope.launch(Dispatchers.IO) {
+                triggerMemoryExtraction(previousMessages)
+            }
+        }
+
         currentChatId = chatId
         _messages.clear()
         // Update sidebar active state immediately
@@ -214,12 +244,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     // ── Prompt building ──────────────────────────────────────
 
-    private fun buildSystemPrompt(): String {
+    private fun buildSystemPrompt(memories: List<MemoryEntity> = emptyList()): String {
         return buildString {
             append("You are Neo, a concise personal AI assistant running fully on-device.\n\n")
+
+            if (memories.isNotEmpty()) {
+                append("## What you know about this user:\n")
+                for (memory in memories) {
+                    val pct = (memory.confidence * 100).toInt()
+                    append("- ${memory.title}: ${memory.content} (${pct}% confident)\n")
+                }
+                append("\n")
+            }
+
             append("Rules:\n")
             append("- Answer all questions directly and accurately.\n")
             append("- Keep responses brief — 1-3 sentences unless the user asks for more detail.")
+            if (memories.isNotEmpty()) {
+                append("\n- Use what you know about the user to personalize responses when relevant.")
+            }
         }
     }
 
@@ -338,7 +381,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         isThinking.value = false
 
         inferenceJob = viewModelScope.launch {
-            val systemPrompt = buildSystemPrompt()
+            // ── RAG: Retrieve relevant memories ──────────────
+            val relevantMemories = try {
+                if (EmbeddingEngine.isReady) {
+                    val latestUserMsg = historySnapshot.lastOrNull { it.role == "user" }?.content
+                    if (latestUserMsg != null) {
+                        val queryEmbedding = EmbeddingEngine.embed(latestUserMsg)
+                        if (queryEmbedding != null) {
+                            memoryRepo.findRelevantMemories(queryEmbedding, topK = 5)
+                        } else emptyList()
+                    } else emptyList()
+                } else emptyList()
+            } catch (e: Exception) {
+                Log.w(TAG, "Memory retrieval failed, using base prompt", e)
+                emptyList()
+            }
+
+            val systemPrompt = buildSystemPrompt(relevantMemories)
             val prompt = buildPrompt(historySnapshot, systemPrompt)
 
             // Log the full prompt so you can verify in Logcat what the model actually receives
@@ -412,11 +471,38 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ── Memory extraction ────────────────────────────────────
+
+    private suspend fun triggerMemoryExtraction(msgs: List<Message>? = null) {
+        val snapshot = msgs ?: _messages.toList().filter { !it.isTyping }
+        if (snapshot.size < 2) return
+
+        // Wait for any active inference job to fully terminate (including native stopInference cleanup)
+        // before running extraction on the same native model instance. Using join() instead of an
+        // isActive check ensures we don't race with the C++ inference thread.
+        inferenceJob?.join()
+
+        try {
+            llmMutex.withLock {
+                MemoryExtractor.extractAndStore(snapshot, memoryRepo)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Memory extraction failed", e)
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         inferenceJob?.cancel()
         loadMessagesJob?.cancel()
         speechManager.destroy()
-        viewModelScope.launch { LlmEngine.unloadModel() }
+        viewModelScope.launch {
+            // Best-effort extraction on app close
+            try {
+                triggerMemoryExtraction()
+            } catch (_: Exception) {}
+            LlmEngine.unloadModel()
+            EmbeddingEngine.unloadModel()
+        }
     }
 }
