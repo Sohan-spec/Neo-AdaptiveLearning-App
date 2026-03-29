@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.runtime.collectAsState
@@ -49,6 +50,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.neo.android.ui.theme.BorderLight
 import com.neo.android.ui.theme.SpatialBg
 import com.neo.android.ui.theme.TextSecondary
+import com.neo.android.ui.dashboard.UsageStatsDashboardActivity
 
 @Composable
 fun ChatScreen(
@@ -223,6 +225,10 @@ fun ChatScreen(
             },
             onDeleteChat = { session ->
                 vm.deleteChat(session.id)
+            },
+            onUsageStats = {
+                sidebarVisible = false
+                context.startActivity(Intent(context, UsageStatsDashboardActivity::class.java))
             },
         )
 

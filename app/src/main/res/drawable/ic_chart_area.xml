@@ -1,0 +1,30 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Area fill -->
+    <path
+        android:fillColor="#5A6070"
+        android:fillAlpha="0.2"
+        android:pathData="M3,18 L7,13 L11,15 L16,9 L21,12 L21,18 Z" />
+
+    <!-- Area line -->
+    <path
+        android:pathData="M3,18 L7,13 L11,15 L16,9 L21,12"
+        android:strokeWidth="1.8"
+        android:strokeColor="#5A6070"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent" />
+
+    <!-- Baseline -->
+    <path
+        android:pathData="M3,18 L21,18"
+        android:strokeWidth="1.8"
+        android:strokeColor="#5A6070"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent" />
+
+</vector>

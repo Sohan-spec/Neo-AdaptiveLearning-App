@@ -13,7 +13,6 @@ import com.neo.android.data.entity.ChatEntity
 import com.neo.android.data.entity.MessageEntity
 import com.neo.android.engine.LlmEngine
 import com.neo.android.model.ModelManager
-import com.neo.android.usage.UsageStatsHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -215,43 +214,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     // ── Prompt building ──────────────────────────────────────
 
-    // Called on IO dispatcher — UsageStatsManager.queryAndAggregateUsageStats() can
-    // return empty results if invoked on the main thread on some Android versions.
-    private suspend fun buildSystemPromptOnIo(): String = withContext(Dispatchers.IO) {
-        val usageSection: String? = if (UsageStatsHelper.hasPermission(context)) {
-            val apps = UsageStatsHelper.getTopApps(context, 3)
-            if (apps.isNotEmpty()) {
-                UsageStatsHelper.formatForPrompt(apps).also {
-                    Log.d(TAG, "Usage stats fetched: $it")
-                }
-            } else {
-                Log.w(TAG, "Usage permission granted but no app data returned (too early in day?)")
-                null
-            }
-        } else {
-            Log.w(TAG, "Usage stats permission NOT granted — omitting from prompt")
-            null
+    private fun buildSystemPrompt(): String {
+        return buildString {
+            append("You are Neo, a concise personal AI assistant running fully on-device.\n\n")
+            append("Rules:\n")
+            append("- Answer all questions directly and accurately.\n")
+            append("- Keep responses brief — 1-3 sentences unless the user asks for more detail.")
         }
-
-        val sb = StringBuilder()
-        sb.append("You are Neo, a concise personal AI assistant running fully on-device.\n\n")
-
-        if (usageSection != null) {
-            // Only claim knowledge when we actually have real data
-            sb.append("REAL DATA — The user's most-used Android apps in the last 24 hours (actual device screen time):\n")
-            sb.append(usageSection)
-            sb.append("\n\n")
-            sb.append("Rules:\n")
-            sb.append("- When asked about app usage, quote the EXACT app names and times from the data above. NEVER invent numbers.\n")
-            sb.append("- Use this context to give personalized responses where relevant.\n")
-        } else {
-            sb.append("Rules:\n")
-            sb.append("- You do NOT have access to this user's app usage data. If asked about usage or screen time, say so clearly. Do NOT make up numbers.\n")
-        }
-        sb.append("- Answer all questions directly and accurately.\n")
-        sb.append("- Keep responses brief — 1-3 sentences unless the user asks for more detail.")
-
-        sb.toString()
     }
 
     private fun buildPrompt(history: List<Message>, systemPrompt: String): String {
@@ -369,8 +338,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         isThinking.value = false
 
         inferenceJob = viewModelScope.launch {
-            // Build system prompt on IO — UsageStatsManager can block or return empty on Main
-            val systemPrompt = buildSystemPromptOnIo()
+            val systemPrompt = buildSystemPrompt()
             val prompt = buildPrompt(historySnapshot, systemPrompt)
 
             // Log the full prompt so you can verify in Logcat what the model actually receives

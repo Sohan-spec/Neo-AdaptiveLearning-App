@@ -47,6 +47,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
+import com.neo.android.R
 import com.neo.android.ui.theme.AccentPrimary
 import com.neo.android.ui.theme.BorderLight
 import com.neo.android.ui.theme.DmSans
@@ -64,6 +66,7 @@ fun BoxScope.ChatHistorySidebar(
     onSessionSelected: (ChatSession) -> Unit,
     onNewChat: () -> Unit = {},
     onDeleteChat: (ChatSession) -> Unit = {},
+    onUsageStats: () -> Unit = {},
 ) {
     // Scrim
     AnimatedVisibility(
@@ -149,15 +152,46 @@ fun BoxScope.ChatHistorySidebar(
                     )
                 }
 
-                // New chat icon (right)
-                Icon(
-                    imageVector = Icons.Outlined.Add,
-                    contentDescription = "New chat",
-                    tint = AccentPrimary,
-                    modifier = Modifier
-                        .size(22.dp)
-                        .clickable { onNewChat() },
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Usage stats button
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .neuShadow(
+                                cornerRadius = 10.dp,
+                                darkColor = Color(0x44A3B1C6),
+                                lightColor = Color(0xAAFFFFFF),
+                                darkOffset = 3.dp,
+                                lightOffset = (-2).dp,
+                                blur = 6.dp,
+                            )
+                            .background(SpatialSurfaceRaised, RoundedCornerShape(10.dp))
+                            .border(1.dp, BorderLight, RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onUsageStats() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_chart_area),
+                            contentDescription = "Usage Stats",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+
+                    // New chat icon
+                    Icon(
+                        imageVector = Icons.Outlined.Add,
+                        contentDescription = "New chat",
+                        tint = AccentPrimary,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clickable { onNewChat() },
+                    )
+                }
             }
 
             // ── Divider ─────────────────────────────────────────
