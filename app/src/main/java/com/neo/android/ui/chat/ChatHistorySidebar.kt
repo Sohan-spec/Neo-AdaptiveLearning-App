@@ -67,6 +67,7 @@ fun BoxScope.ChatHistorySidebar(
     onNewChat: () -> Unit = {},
     onDeleteChat: (ChatSession) -> Unit = {},
     onUsageStats: () -> Unit = {},
+    onMemory: () -> Unit = {},
 ) {
     // Scrim
     AnimatedVisibility(
@@ -156,6 +157,32 @@ fun BoxScope.ChatHistorySidebar(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Memory window button
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .neuShadow(
+                                cornerRadius = 10.dp,
+                                darkColor = Color(0x44A3B1C6),
+                                lightColor = Color(0xAAFFFFFF),
+                                darkOffset = 3.dp,
+                                lightOffset = (-2).dp,
+                                blur = 6.dp,
+                            )
+                            .background(SpatialSurfaceRaised, RoundedCornerShape(10.dp))
+                            .border(1.dp, BorderLight, RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onMemory() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_brain),
+                            contentDescription = "Memory",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+
                     // Usage stats button
                     Box(
                         modifier = Modifier

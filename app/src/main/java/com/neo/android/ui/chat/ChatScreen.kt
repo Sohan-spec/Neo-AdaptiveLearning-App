@@ -51,6 +51,7 @@ import com.neo.android.ui.theme.BorderLight
 import com.neo.android.ui.theme.SpatialBg
 import com.neo.android.ui.theme.TextSecondary
 import com.neo.android.ui.dashboard.UsageStatsDashboardActivity
+import com.neo.android.ui.memory.MemoryWindowActivity
 
 @Composable
 fun ChatScreen(
@@ -229,6 +230,10 @@ fun ChatScreen(
             onUsageStats = {
                 sidebarVisible = false
                 context.startActivity(Intent(context, UsageStatsDashboardActivity::class.java))
+            },
+            onMemory = {
+                sidebarVisible = false
+                context.startActivity(Intent(context, MemoryWindowActivity::class.java))
             },
         )
 

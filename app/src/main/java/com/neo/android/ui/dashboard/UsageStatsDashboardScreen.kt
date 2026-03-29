@@ -35,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.painterResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -418,7 +419,7 @@ private fun BadgeRow(selectedBadge: BadgeType?, onBadgeClick: (BadgeType) -> Uni
 @Composable
 private fun AnalysisBadge(
     label: String,
-    icon: String,
+    icon: Int,
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -456,9 +457,11 @@ private fun AnalysisBadge(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                text = icon,
-                fontSize = 14.sp,
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = null,
+                tint = if (isSelected) Color.White else AccentPrimary,
+                modifier = Modifier.size(15.dp),
             )
             Text(
                 text = label,

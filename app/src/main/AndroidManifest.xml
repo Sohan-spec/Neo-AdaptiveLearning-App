@@ -44,6 +44,10 @@
             android:name=".ui.dashboard.UsageStatsDashboardActivity"
             android:exported="false"
             android:theme="@style/Theme.Neo" />
+        <activity
+            android:name=".ui.memory.MemoryWindowActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Neo" />
     </application>
 
 </manifest>

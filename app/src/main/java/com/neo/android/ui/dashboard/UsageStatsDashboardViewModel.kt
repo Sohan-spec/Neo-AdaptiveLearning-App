@@ -2,6 +2,7 @@ package com.neo.android.ui.dashboard
 
 import android.app.Application
 import android.util.Log
+import androidx.annotation.DrawableRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.neo.android.engine.LlmEngine
@@ -16,11 +17,11 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-enum class BadgeType(val label: String, val icon: String) {
-    SUMMARISE("Summarise", "📋"),
-    INSIGHTS("Insights", "💡"),
-    SUGGESTIONS("Suggestions", "🎯"),
-    PATTERNS("Patterns", "📊"),
+enum class BadgeType(val label: String, @DrawableRes val icon: Int) {
+    SUMMARISE("Summarise", com.neo.android.R.drawable.ic_badge_summarise),
+    INSIGHTS("Insights", com.neo.android.R.drawable.ic_badge_insights),
+    SUGGESTIONS("Suggestions", com.neo.android.R.drawable.ic_badge_suggestions),
+    PATTERNS("Patterns", com.neo.android.R.drawable.ic_badge_patterns),
 }
 
 class UsageStatsDashboardViewModel(application: Application) : AndroidViewModel(application) {
