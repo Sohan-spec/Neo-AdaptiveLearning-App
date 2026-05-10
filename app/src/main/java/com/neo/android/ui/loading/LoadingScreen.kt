@@ -90,6 +90,7 @@ fun LoadingScreen(onReady: () -> Unit) {
     var embeddingState by remember { mutableStateOf<DownloadState>(DownloadState.Idle) }
     var showUsageDialog by remember { mutableStateOf(false) }
     var usagePermissionHandled by remember { mutableStateOf(false) }
+    var retryTrigger by remember { mutableStateOf(0) }
 
     val llmReady = downloadState is DownloadState.Ready
     val embeddingReady = embeddingState is DownloadState.Ready
@@ -104,10 +105,12 @@ fun LoadingScreen(onReady: () -> Unit) {
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(retryTrigger) {
+        downloadState = DownloadState.Idle
         ModelManager.downloadModel(context).collectLatest { state -> downloadState = state }
     }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(retryTrigger) {
+        embeddingState = DownloadState.Idle
         ModelManager.downloadEmbeddingModel(context).collectLatest { state -> embeddingState = state }
     }
 
@@ -172,7 +175,7 @@ fun LoadingScreen(onReady: () -> Unit) {
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                        ) { downloadState = DownloadState.Idle }
+                        ) { retryTrigger++ }
                         .padding(horizontal = 28.dp, vertical = 12.dp),
                 ) {
                     Text(

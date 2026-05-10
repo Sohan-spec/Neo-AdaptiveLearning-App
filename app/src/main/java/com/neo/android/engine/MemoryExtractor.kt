@@ -7,8 +7,6 @@ import com.neo.android.ui.chat.Message
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.collect
 
 data class RawMemory(
     val category: String,
@@ -16,143 +14,180 @@ data class RawMemory(
     val content: String,
 )
 
+/**
+ * Rule-based memory extractor that pulls personal facts from user messages
+ * using pattern matching. This is much more reliable than LLM-based extraction,
+ * especially with small (1B) models.
+ */
 object MemoryExtractor {
 
     private const val TAG = "MemoryExtractor"
 
-    private val VALID_CATEGORIES = setOf("Preferences", "Facts", "Interests", "Habits", "Context")
-
-    private val EXTRACTION_REGEX =
-        """\[(Preferences|Facts|Interests|Habits|Context)]\s*(.+?):\s*(.+)""".toRegex()
-
-    // Secondary: matches "Category: Title: Content" (model omits square brackets)
-    private val SECONDARY_REGEX =
-        """(Preferences|Facts|Interests|Habits|Context)[:\s]+(.+?):\s*(.+)""".toRegex(RegexOption.IGNORE_CASE)
-
     private val _isExtracting = MutableStateFlow(false)
     val isExtracting: StateFlow<Boolean> = _isExtracting.asStateFlow()
+
+    // ── Pattern definitions ──────────────────────────────────────
+    // Each pattern: Regex → (category, titleGenerator)
+    // We only match USER messages, never assistant messages.
+
+    private data class ExtractionPattern(
+        val regex: Regex,
+        val category: String,
+        val titleFn: (MatchResult) -> String,
+        val contentFn: (MatchResult) -> String,
+    )
+
+    private val patterns = listOf(
+        // Name patterns
+        ExtractionPattern(
+            regex = Regex("""(?:my name is|i'm called|call me|i am)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)""", RegexOption.IGNORE_CASE),
+            category = "Facts",
+            titleFn = { "Name" },
+            contentFn = { m -> m.groupValues[1].trim() },
+        ),
+        // Age patterns
+        ExtractionPattern(
+            regex = Regex("""(?:i'm|i am|im)\s+(\d{1,3})\s*(?:years?\s*old|yrs?\s*old|yo)""", RegexOption.IGNORE_CASE),
+            category = "Facts",
+            titleFn = { "Age" },
+            contentFn = { m -> "${m.groupValues[1]} years old" },
+        ),
+        // Location patterns
+        ExtractionPattern(
+            regex = Regex("""(?:i live in|i'm from|i am from|i stay in|i reside in)\s+(.+?)(?:\.|,|$)""", RegexOption.IGNORE_CASE),
+            category = "Facts",
+            titleFn = { "Location" },
+            contentFn = { m -> m.groupValues[1].trim() },
+        ),
+        // Occupation patterns
+        ExtractionPattern(
+            regex = Regex("""(?:i work as|i'm a|i am a|i am an|i'm an|my job is|i work in|my profession is)\s+(.+?)(?:\.|,|$)""", RegexOption.IGNORE_CASE),
+            category = "Facts",
+            titleFn = { "Occupation" },
+            contentFn = { m -> m.groupValues[1].trim() },
+        ),
+        // Student patterns
+        ExtractionPattern(
+            regex = Regex("""(?:i study|i'm studying|i am studying|i'm a student|i am a student)\s*(?:at|in|of)?\s*(.+?)(?:\.|,|$)""", RegexOption.IGNORE_CASE),
+            category = "Facts",
+            titleFn = { "Education" },
+            contentFn = { m -> "Studies ${m.groupValues[1].trim()}" },
+        ),
+        // Likes/Interests
+        ExtractionPattern(
+            regex = Regex("""(?:i (?:really )?(?:like|love|enjoy|adore))\s+(.+?)(?:\.|,|$)""", RegexOption.IGNORE_CASE),
+            category = "Interests",
+            titleFn = { m ->
+                val topic = m.groupValues[1].trim().split(" ").take(2).joinToString(" ")
+                topic.replaceFirstChar { it.uppercase() }
+            },
+            contentFn = { m -> "Enjoys ${m.groupValues[1].trim()}" },
+        ),
+        // Dislikes
+        ExtractionPattern(
+            regex = Regex("""(?:i (?:really )?(?:hate|dislike|don't like|can't stand))\s+(.+?)(?:\.|,|$)""", RegexOption.IGNORE_CASE),
+            category = "Preferences",
+            titleFn = { m ->
+                val topic = m.groupValues[1].trim().split(" ").take(2).joinToString(" ")
+                topic.replaceFirstChar { it.uppercase() }
+            },
+            contentFn = { m -> "Dislikes ${m.groupValues[1].trim()}" },
+        ),
+        // Preferences
+        ExtractionPattern(
+            regex = Regex("""(?:i prefer)\s+(.+?)(?:\.|,|$)""", RegexOption.IGNORE_CASE),
+            category = "Preferences",
+            titleFn = { m ->
+                val topic = m.groupValues[1].trim().split(" ").take(2).joinToString(" ")
+                topic.replaceFirstChar { it.uppercase() }
+            },
+            contentFn = { m -> "Prefers ${m.groupValues[1].trim()}" },
+        ),
+        // Hobby patterns
+        ExtractionPattern(
+            regex = Regex("""(?:my hobbies?\s+(?:is|are|include))\s+(.+?)(?:\.|,|$)""", RegexOption.IGNORE_CASE),
+            category = "Interests",
+            titleFn = { "Hobbies" },
+            contentFn = { m -> m.groupValues[1].trim() },
+        ),
+        // Favorite patterns
+        ExtractionPattern(
+            regex = Regex("""(?:my fav(?:ou?rite)?\s+(\w+)\s+is)\s+(.+?)(?:\.|,|$)""", RegexOption.IGNORE_CASE),
+            category = "Preferences",
+            titleFn = { m -> "Favorite ${m.groupValues[1].trim()}" },
+            contentFn = { m -> m.groupValues[2].trim() },
+        ),
+        // Pet patterns
+        ExtractionPattern(
+            regex = Regex("""(?:i have a|i own a|i've got a)\s+(dog|cat|pet|bird|fish|hamster|rabbit)(?:\s+(?:named|called)\s+(\w+))?""", RegexOption.IGNORE_CASE),
+            category = "Facts",
+            titleFn = { "Pet" },
+            contentFn = { m ->
+                val pet = m.groupValues[1].trim()
+                val name = m.groupValues[2].trim()
+                if (name.isNotEmpty()) "Has a $pet named $name" else "Has a $pet"
+            },
+        ),
+        // Language patterns
+        ExtractionPattern(
+            regex = Regex("""(?:i speak|i know)\s+(english|hindi|spanish|french|german|chinese|japanese|korean|arabic|portuguese|bengali|tamil|telugu|marathi|gujarati|urdu|kannada|malayalam|punjabi|odia)""", RegexOption.IGNORE_CASE),
+            category = "Facts",
+            titleFn = { "Language" },
+            contentFn = { m -> "Speaks ${m.groupValues[1].trim()}" },
+        ),
+    )
 
     suspend fun extractAndStore(
         messages: List<Message>,
         memoryRepo: MemoryRepository,
     ) {
-        if (messages.size < 2) return
+        if (messages.isEmpty()) return
         _isExtracting.value = true
         try {
-            // 1. Decay existing auto-extracted memories
-            memoryRepo.decayAndPrune()
+            // Only look at USER messages
+            val userMessages = messages.filter { it.role == "user" }
+            if (userMessages.isEmpty()) return
 
-            // 2. Extract raw memories from conversation via LLM
-            val rawMemories = extractMemories(messages)
+            val rawMemories = mutableListOf<RawMemory>()
+
+            for (msg in userMessages) {
+                val text = msg.content
+                for (pattern in patterns) {
+                    val match = pattern.regex.find(text) ?: continue
+                    val content = pattern.contentFn(match)
+                    // Skip very short or garbage matches
+                    if (content.length < 2 || content.length > 100) continue
+
+                    rawMemories.add(
+                        RawMemory(
+                            category = pattern.category,
+                            title = pattern.titleFn(match),
+                            content = content,
+                        )
+                    )
+                }
+            }
+
             if (rawMemories.isEmpty()) {
-                Log.d(TAG, "No memories extracted from conversation")
+                Log.d(TAG, "No memories extracted from conversation (rule-based)")
                 return
             }
-            Log.i(TAG, "Extracted ${rawMemories.size} raw memories")
 
-            // 3. Deduplicate and store
+            Log.i(TAG, "Extracted ${rawMemories.size} memories (rule-based)")
+            for (raw in rawMemories) {
+                Log.d(TAG, "  → [${raw.category}] ${raw.title}: ${raw.content}")
+            }
+
+            // Deduplicate and store
             upsertMemories(rawMemories, memoryRepo)
 
-            // 4. Enforce cap
+            // Enforce cap
             memoryRepo.enforceMemoryCap(200)
         } catch (e: Exception) {
             Log.e(TAG, "Memory extraction failed", e)
         } finally {
             _isExtracting.value = false
         }
-    }
-
-    private suspend fun extractMemories(messages: List<Message>): List<RawMemory> {
-        val conversationText = buildConversationText(messages)
-        val prompt = buildExtractionPrompt(conversationText)
-
-        val responseBuilder = StringBuilder()
-        try {
-            LlmEngine.runInference(prompt, maxTokens = 300)
-                .catch { e -> Log.e(TAG, "Extraction inference error", e) }
-                .collect { token -> responseBuilder.append(token) }
-        } catch (e: Exception) {
-            Log.e(TAG, "Extraction inference failed", e)
-            return emptyList()
-        }
-
-        val rawOutput = responseBuilder.toString()
-        Log.d(TAG, "Raw LLM extraction output: $rawOutput")
-        return parseExtractionOutput(rawOutput)
-    }
-
-    private fun buildConversationText(messages: List<Message>): String {
-        return messages.joinToString("\n") { msg ->
-            val role = if (msg.role == "user") "User" else "Assistant"
-            "$role: ${msg.content}"
-        }
-    }
-
-    private fun buildExtractionPrompt(conversation: String): String {
-        return buildString {
-            append("<|begin_of_text|>")
-            append("<|start_header_id|>system<|end_header_id|>\n\n")
-            append("Extract key facts about the user from the conversation below.\n")
-            append("Use ONLY this exact format, one fact per line:\n")
-            append("[Category] Title: Description\n\n")
-            append("Valid categories: Preferences, Facts, Interests, Habits, Context\n\n")
-            append("Rules:\n")
-            append("- Only output facts explicitly stated by the USER, not the assistant\n")
-            append("- Output 1-5 facts maximum\n")
-            append("- If no clear user facts exist, output nothing at all\n")
-            append("- Do NOT add numbers, bullets, explanations, or any other text\n\n")
-            append("Example output format:\n")
-            append("[Facts] Occupation: Works as an Android developer\n")
-            append("[Preferences] Response style: Prefers concise answers\n")
-            append("[Interests] Gaming: Enjoys mobile games\n")
-            append("<|eot_id|>")
-            append("<|start_header_id|>user<|end_header_id|>\n\n")
-            append("Conversation:\n")
-            append(conversation.take(2000))
-            append("<|eot_id|>")
-            append("<|start_header_id|>assistant<|end_header_id|>\n\n")
-        }
-    }
-
-    private fun parseExtractionOutput(output: String): List<RawMemory> {
-        val results = mutableListOf<RawMemory>()
-        // Skip preamble phrases the model sometimes prepends before facts
-        val skipPrefixes = listOf("here", "based on", "i found", "i identified", "note:", "example", "sure")
-
-        for (line in output.lines()) {
-            if (results.size >= 5) break
-            val trimmed = line.trim()
-            if (trimmed.isBlank()) continue
-            if (skipPrefixes.any { trimmed.startsWith(it, ignoreCase = true) }) continue
-
-            // Strip leading numbers/bullets: "1. ", "2) ", "- ", "* ", "• "
-            val cleaned = trimmed.replace(Regex("""^\d+[.)\]]\s*|^[-*•]\s*"""), "")
-
-            // 1st pass: strict [Category] Title: Content
-            val primary = EXTRACTION_REGEX.find(cleaned)
-            if (primary != null) {
-                val (category, title, content) = primary.destructured
-                if (title.isNotBlank() && content.isNotBlank()) {
-                    results.add(RawMemory(category = category, title = title.trim(), content = content.trim()))
-                    continue
-                }
-            }
-
-            // 2nd pass: Category: Title: Content (model dropped square brackets)
-            val secondary = SECONDARY_REGEX.find(cleaned)
-            if (secondary != null) {
-                val (category, title, content) = secondary.destructured
-                val normalizedCategory = VALID_CATEGORIES.firstOrNull {
-                    it.equals(category.trim(), ignoreCase = true)
-                } ?: continue
-                if (title.isNotBlank() && content.isNotBlank()) {
-                    results.add(RawMemory(category = normalizedCategory, title = title.trim(), content = content.trim()))
-                }
-            }
-        }
-
-        Log.d(TAG, "Parsed ${results.size} memories")
-        return results
     }
 
     private suspend fun upsertMemories(
@@ -166,12 +201,13 @@ object MemoryExtractor {
 
                 if (embedding == null) {
                     // Embedding engine not available — insert without embedding
+                    Log.w(TAG, "Embedding engine not ready, inserting without embedding: ${raw.title}")
                     memoryRepo.insertMemory(
                         MemoryEntity(
                             category = raw.category,
                             title = raw.title,
                             content = raw.content,
-                            confidence = 0.70f,
+                            confidence = 0.90f,
                             embedding = null,
                             source = "auto",
                         )
@@ -185,7 +221,7 @@ object MemoryExtractor {
                 val bestMatch = memoryRepo.findBestMatch(embedding)
 
                 if (bestMatch != null && bestMatch.second > 0.85f) {
-                    // Merge: update existing memory
+                    // Merge: update existing memory with new content
                     val existing = bestMatch.first
                     memoryRepo.updateMemory(
                         existing.copy(
@@ -195,7 +231,7 @@ object MemoryExtractor {
                             updatedAtMillis = System.currentTimeMillis(),
                         )
                     )
-                    Log.d(TAG, "Merged memory: ${raw.title} (similarity: ${bestMatch.second})")
+                    Log.i(TAG, "Merged memory: ${raw.title} → ${raw.content} (similarity: ${bestMatch.second})")
                 } else {
                     // Insert new memory
                     memoryRepo.insertMemory(
@@ -203,12 +239,12 @@ object MemoryExtractor {
                             category = raw.category,
                             title = raw.title,
                             content = raw.content,
-                            confidence = 0.70f,
+                            confidence = 0.90f,
                             embedding = embeddingBytes,
                             source = "auto",
                         )
                     )
-                    Log.d(TAG, "Inserted new memory: ${raw.title}")
+                    Log.i(TAG, "Inserted new memory: ${raw.title} → ${raw.content}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to upsert memory: ${raw.title}", e)

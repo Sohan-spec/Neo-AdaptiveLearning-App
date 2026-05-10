@@ -38,10 +38,10 @@ interface MemoryDao {
     @Query("SELECT COUNT(*) FROM memories")
     fun getCountFlow(): Flow<Int>
 
-    @Query("UPDATE memories SET confidence = confidence * 0.98 WHERE source = 'auto'")
+    @Query("UPDATE memories SET confidence = confidence * 0.995 WHERE source = 'auto'")
     suspend fun decayAutoConfidence()
 
-    @Query("DELETE FROM memories WHERE source = 'auto' AND confidence < 0.40")
+    @Query("DELETE FROM memories WHERE source = 'auto' AND confidence < 0.20")
     suspend fun pruneWeakMemories(): Int
 
     @Query("DELETE FROM memories WHERE id IN (SELECT id FROM memories WHERE source = 'auto' ORDER BY confidence ASC LIMIT :count)")

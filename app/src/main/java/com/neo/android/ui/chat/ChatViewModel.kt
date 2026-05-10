@@ -246,23 +246,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun buildSystemPrompt(memories: List<MemoryEntity> = emptyList()): String {
         return buildString {
-            append("You are Neo, a concise personal AI assistant running fully on-device.\n\n")
+            append("You are a helpful personal AI assistant named Neo. ")
+            append("You run locally on a phone. You are not from any movie or fiction.\n\n")
 
             if (memories.isNotEmpty()) {
-                append("## What you know about this user:\n")
+                append("## What you remember about this user:\n")
                 for (memory in memories) {
-                    val pct = (memory.confidence * 100).toInt()
-                    append("- ${memory.title}: ${memory.content} (${pct}% confident)\n")
+                    append("- ${memory.title}: ${memory.content}\n")
                 }
                 append("\n")
             }
 
             append("Rules:\n")
-            append("- Answer all questions directly and accurately.\n")
-            append("- Keep responses brief — 1-3 sentences unless the user asks for more detail.")
-            if (memories.isNotEmpty()) {
-                append("\n- Use what you know about the user to personalize responses when relevant.")
-            }
+            append("- Answer all general knowledge questions fully and accurately.\n")
+            append("- Keep responses to 1-3 sentences unless asked for more.\n")
+            append("- When the user tells you personal info about themselves (name, age, etc.), acknowledge it warmly.\n")
+            append("- Only say you don't know if the user asks about their OWN personal details (name, age, job) and those details are not listed above. For everything else, answer normally.\n")
+            append("- NEVER invent personal details about the user.\n")
+            append("- Never reference The Matrix or any fiction. Be direct, friendly, and helpful.")
         }
     }
 
@@ -388,7 +389,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     if (latestUserMsg != null) {
                         val queryEmbedding = EmbeddingEngine.embed(latestUserMsg)
                         if (queryEmbedding != null) {
-                            memoryRepo.findRelevantMemories(queryEmbedding, topK = 5)
+                            memoryRepo.findRelevantMemories(queryEmbedding, topK = 5, minConfidence = 0.30f)
                         } else emptyList()
                     } else emptyList()
                 } else emptyList()
@@ -407,27 +408,31 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             val responseBuilder = StringBuilder()
 
-            LlmEngine.runInference(prompt, maxTokens = 400)
-                .catch { e ->
-                    Log.e(TAG, "Inference error", e)
-                    if (streamIdx < _messages.size) {
-                        _messages[streamIdx] = Message("assistant", "Sorry, something went wrong. Please try again.")
-                    }
-                }
-                .collect { token ->
-                    responseBuilder.append(token)
-                    val currentText = responseBuilder.toString()
-                    if (streamIdx < _messages.size) {
-                        _messages[streamIdx] = Message(
-                            "assistant",
-                            currentText,
-                            isTyping = true,
-                            visibleChars = currentText.length,
-                        )
-                    }
-                }
+            var finalText: String
 
-            val finalText = responseBuilder.toString().trim()
+            llmMutex.withLock {
+                LlmEngine.runInference(prompt, maxTokens = 400)
+                    .catch { e ->
+                        Log.e(TAG, "Inference error", e)
+                        if (streamIdx < _messages.size) {
+                            _messages[streamIdx] = Message("assistant", "Sorry, something went wrong. Please try again.")
+                        }
+                    }
+                    .collect { token ->
+                        responseBuilder.append(token)
+                        val currentText = responseBuilder.toString()
+                        if (streamIdx < _messages.size) {
+                            _messages[streamIdx] = Message(
+                                "assistant",
+                                currentText,
+                                isTyping = true,
+                                visibleChars = currentText.length,
+                            )
+                        }
+                    }
+            }
+
+            finalText = responseBuilder.toString().trim()
             Log.d(TAG, "LLM response: $finalText")
 
             if (streamIdx < _messages.size) {
@@ -445,6 +450,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
                 repo.updateChatTimestamp(chatId)
+
+                // Trigger memory extraction after each exchange so memories update in real-time
+                val extractionSnapshot = _messages.toList().filter { !it.isTyping }
+                if (extractionSnapshot.size >= 2) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        triggerMemoryExtraction(extractionSnapshot)
+                    }
+                }
             }
 
             if (isVoiceMode || isLiveMode.value) {
@@ -475,17 +488,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun triggerMemoryExtraction(msgs: List<Message>? = null) {
         val snapshot = msgs ?: _messages.toList().filter { !it.isTyping }
-        if (snapshot.size < 2) return
+        if (snapshot.isEmpty()) return
 
-        // Wait for any active inference job to fully terminate (including native stopInference cleanup)
-        // before running extraction on the same native model instance. Using join() instead of an
-        // isActive check ensures we don't race with the C++ inference thread.
-        inferenceJob?.join()
-
+        // Rule-based extraction — no LLM needed, runs instantly
         try {
-            llmMutex.withLock {
-                MemoryExtractor.extractAndStore(snapshot, memoryRepo)
-            }
+            MemoryExtractor.extractAndStore(snapshot, memoryRepo)
         } catch (e: Exception) {
             Log.e(TAG, "Memory extraction failed", e)
         }
