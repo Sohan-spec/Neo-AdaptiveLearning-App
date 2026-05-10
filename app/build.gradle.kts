@@ -82,6 +82,11 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
+    // Media3 ExoPlayer for video playback
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-common:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
+
     // ONNX Runtime for on-device embeddings
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.0")
 

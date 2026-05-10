@@ -16,6 +16,7 @@ import com.neo.android.data.entity.MessageEntity
 @Database(
     entities = [ChatEntity::class, MessageEntity::class, MemoryEntity::class],
     version = 2,
+    exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
